@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "screenpilot"
+version = "0.1.0"
+description = "Lightweight, enterprise-friendly screenshot, screen recording and documentation platform."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary - license to be decided" }
+authors = [{ name = "Bogdan Paul Murar" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+]
+# Core runtime dependencies are deliberately minimal. See docs/DEPENDENCIES.md
+# for the security / maintenance evaluation of every entry.
+dependencies = [
+    "Pillow>=10.3",
+]
+
+[project.optional-dependencies]
+# Desktop UI (milestone M1). Kept optional so the headless core can be used
+# by automation clients (e.g. Autopilot) without pulling in Qt.
+ui = ["PySide6-Essentials>=6.6"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+screenpilot = "screenpilot.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"screenpilot.i18n" = ["locales/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
