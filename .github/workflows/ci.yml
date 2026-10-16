@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        python: ["3.10", "3.12"]
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Unit and Windows integration tests
+        run: python -m pytest -q
+      - name: CLI smoke test
+        if: runner.os == 'Windows'
+        run: |
+          python -m screenpilot version
+          python -m screenpilot monitors
+          python -m screenpilot --lang ro hotkeys
+          python -m screenpilot capture all --out smoke/all.png
+          python -m screenpilot capture region --rect 0,0,320,200 --out smoke/region.png
+      - name: Upload smoke captures
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-captures-py${{ matrix.python }}
+          path: smoke/
