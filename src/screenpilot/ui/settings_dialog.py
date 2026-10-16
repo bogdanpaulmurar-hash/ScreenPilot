@@ -290,6 +290,9 @@ class SettingsDialog(QDialog):
         self.key_edit = QKeySequenceEdit()
         self.key_edit.setMaximumSequenceLength(1)
         self.key_edit.editingFinished.connect(self._on_key_edited)
+        inner = self.key_edit.findChild(QLineEdit)
+        if inner is not None:  # Qt's own placeholder is English-only
+            self.rt.bind(inner.setPlaceholderText, "hotkeys.press_keys")
         clear = QPushButton()
         self.rt.bind(clear.setText, "hotkeys.clear")
         clear.clicked.connect(self._clear_hotkey)

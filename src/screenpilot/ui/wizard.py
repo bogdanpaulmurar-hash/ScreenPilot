@@ -28,6 +28,7 @@ class FirstRunWizard(QWizard):
             (QWizard.WizardButton.NextButton, "wizard.next"),
             (QWizard.WizardButton.BackButton, "wizard.back"),
             (QWizard.WizardButton.FinishButton, "wizard.finish"),
+            (QWizard.WizardButton.CancelButton, "wizard.cancel"),
         ):
             rt.bind(lambda text, b=button: self.setButtonText(b, text), key)
 

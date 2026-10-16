@@ -145,5 +145,7 @@
   "app.already_running": "ScreenPilot rulează deja. Caută iconița în zona de notificare.",
   "about.body": "ScreenPilot {version}\n\nFără telemetrie. Fără acces la rețea. Capturile tale rămân pe acest calculator.",
   "notify.not_available": "Această funcție vine într-o versiune viitoare.",
-  "notify.workflow_failed": "{action} a eșuat: {reason}"
+  "notify.workflow_failed": "{action} a eșuat: {reason}",
+  "wizard.cancel": "Anulează",
+  "hotkeys.press_keys": "Apasă noua combinație"
 }

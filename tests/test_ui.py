@@ -22,7 +22,7 @@ try:
 except ImportError:  # pragma: no cover - headless CI without the ui extra
     HAVE_QT = False
 
-from screenpilot.capture import FakeBackend, Monitor, Point, Rect, WindowInfo
+from screenpilot.capture import Monitor, Point, Rect
 from screenpilot.core.logging_setup import close_logging
 from screenpilot.core.paths import AppPaths
 
@@ -58,11 +58,13 @@ class UiTestCase(unittest.TestCase):
         from screenpilot.ui.controller import AppController
 
         self._tmp = tempfile.TemporaryDirectory()
-        geo = QGuiApplication.primaryScreen().geometry()
+        from screenpilot.samples import DemoBackend
+
+        screen = QGuiApplication.primaryScreen()
+        geo = screen.geometry()
         self.screen_rect = Rect(geo.x(), geo.y(), geo.width(), geo.height())
-        monitor = Monitor(1, self.screen_rect, self.screen_rect, True, QGuiApplication.primaryScreen().name())
-        self.window = WindowInfo(7, "Dialog", Rect(geo.x() + 100, geo.y() + 80, 300, 200), "Dlg", 1)
-        self.backend = FakeBackend([monitor], windows=[self.window], cursor=Point(geo.x() + 10, geo.y() + 10))
+        self.backend = DemoBackend(self.screen_rect, device_name=screen.name(), cursor=Point(geo.x() + 10, geo.y() + 10))
+        self.window = self.backend.list_windows()[0]  # the front ERP window
         self.app = create_app(
             paths=AppPaths.under(Path(self._tmp.name), portable=True),
             backend=self.backend,
@@ -131,8 +133,10 @@ class RegionSelectorTests(UiTestCase):
         self.controller.capture_region()
         overlay = self.controller.selector.overlays[0]
         QTest.qWaitForWindowExposed(overlay)
-        inside = QPoint(150, 120)
+        b = self.window.bounds
+        inside = QPoint(b.x - self.screen_rect.x + b.width // 2, b.y - self.screen_rect.y + 60)
         QTest.mouseMove(overlay, inside)
+        shot(overlay, "02b_selector_window_snap")
         QTest.mouseClick(overlay, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, inside)
         QTest.keyClick(overlay, Qt.Key.Key_Return)
         self.assertTrue(wait_until(lambda: captured))

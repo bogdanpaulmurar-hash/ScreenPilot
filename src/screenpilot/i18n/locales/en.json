@@ -145,5 +145,7 @@
   "app.already_running": "ScreenPilot is already running. Look for its icon in the system tray.",
   "about.body": "ScreenPilot {version}\n\nNo telemetry. No network access. Your captures stay on this computer.",
   "notify.not_available": "This feature arrives in a future version.",
-  "notify.workflow_failed": "{action} failed: {reason}"
+  "notify.workflow_failed": "{action} failed: {reason}",
+  "wizard.cancel": "Cancel",
+  "hotkeys.press_keys": "Press the new shortcut"
 }
