@@ -173,6 +173,7 @@ class StepEditor(QWidget):
         self.resize(min(1200, result.image.width + 80), min(860, result.image.height + 160))
 
         self.canvas = StepCanvas(result.image, self.doc)
+        self.count_label = label(role="caption")
 
         bar = QHBoxLayout()
         bar.setSpacing(6)
@@ -231,7 +232,6 @@ class StepEditor(QWidget):
         bar.addStretch(1)
 
         bottom = QHBoxLayout()
-        self.count_label = label(role="caption")
         hint = label(role="caption")
         rt.bind(hint.setText, "steps.hint")
         bottom.addWidget(hint, 1)
