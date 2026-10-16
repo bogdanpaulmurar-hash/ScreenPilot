@@ -35,6 +35,7 @@ jobs:
       - name: Unit, Windows integration and UI tests
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_QPA_FONTDIR: C:\Windows\Fonts
           SCREENPILOT_UI_SHOTS: ui-screenshots
         run: python -m pytest -q --junitxml=junit.xml
       - name: Report test summary and failures as annotations
