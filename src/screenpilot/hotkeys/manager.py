@@ -29,6 +29,7 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "capture.fullscreen": "Ctrl+Shift+3",
     "capture.all_monitors": "Ctrl+Shift+4",
     "capture.delayed": "Ctrl+Shift+5",
+    "capture.scrolling": "Ctrl+Shift+6",
     "capture.repeat_last": "Ctrl+Shift+R",
     "ocr.region": "Ctrl+Shift+O",
     "app.open_editor": "Ctrl+Shift+E",

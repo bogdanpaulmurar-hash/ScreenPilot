@@ -29,7 +29,14 @@ from screenpilot.core.events import Event
 from screenpilot.hotkeys import RegistrationStatus
 from screenpilot.ui.countdown import CountdownOverlay
 from screenpilot.ui.qt_helpers import EventBridge, Retranslator
-from screenpilot.ui.region_selector import ACTION_COPY, ACTION_PIN, ACTION_SAVE_AS, RegionSelector, physical_to_logical
+from screenpilot.ui.region_selector import (
+    ACTION_COPY,
+    ACTION_PIN,
+    ACTION_SAVE_AS,
+    ACTION_SCROLL,
+    RegionSelector,
+    physical_to_logical,
+)
 from screenpilot.workflow import StepStatus
 
 log = logging.getLogger(__name__)
@@ -43,6 +50,7 @@ class AppController(QObject):
     notify = Signal(str, str, bool)  # title, body, is_error
     hotkeys_changed = Signal()
     captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
+    scroll_finished = Signal(object, str, object)  # CaptureResult | None, reason, scroller
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
         super().__init__()
@@ -60,6 +68,10 @@ class AppController(QObject):
         self._preview: QWidget | None = None
         self.pins: list[QWidget] = []
         self.edge_bar: QWidget | None = None
+        self.scroller_factory: Callable[[], object] | None = None  # tests inject a fake
+        self._scroll_indicator: QWidget | None = None
+        self._region_default = "default"  # what Enter does in the selector ("scroll" from the hub tile)
+        self.scroll_finished.connect(self._on_scroll_finished)
         self.hotkey_pressed.connect(self._on_hotkey)
         self.captured.connect(self._on_captured)
 
@@ -70,6 +82,7 @@ class AppController(QObject):
             "capture.all_monitors": self.capture_all_monitors,
             "capture.delayed": lambda: self.capture_delayed(self.app.settings.get("capture.default_delay_seconds")),
             "capture.repeat_last": self.repeat_last,
+            "capture.scrolling": self.capture_region_then_scroll,
             "ocr.region": self._not_available,
             "app.open_editor": self._not_available,
             "app.open_history": self.show_history,
@@ -117,8 +130,8 @@ class AppController(QObject):
 
     @property
     def busy(self) -> bool:
-        """A capture flow is in progress (selector open or countdown running)."""
-        return self.selector.active or self._countdown is not None
+        """A capture flow is in progress (selector, countdown or scrolling)."""
+        return self.selector.active or self._countdown is not None or self._scroll_indicator is not None
 
     def hide_chrome(self) -> bool:
         """Hide ScreenPilot's own floating UI so it never appears in a capture."""
@@ -190,6 +203,12 @@ class AppController(QObject):
         if outcome is None or frozen is None:
             return
         rect, action = outcome
+        default, self._region_default = self._region_default, "default"
+        if action == "default":
+            action = default
+        if action == ACTION_SCROLL:
+            self.start_scrolling(rect)
+            return
         try:
             result = self.app.capture.region_from_frozen(frozen, rect)
         except ScreenPilotError as exc:
@@ -205,6 +224,64 @@ class AppController(QObject):
             self.pin(result)
         else:
             self.process(result)
+
+    def capture_region_then_scroll(self) -> None:
+        """Selector where Enter / click starts a scrolling capture."""
+        self.capture_region()
+        if self.selector.active:
+            self._region_default = ACTION_SCROLL
+
+    # -- scrolling ------------------------------------------------------------
+    def _make_scroller(self):
+        if self.scroller_factory is not None:
+            return self.scroller_factory()
+        if sys.platform == "win32":
+            from screenpilot.capture.win32_scroller import Win32Scroller
+
+            return Win32Scroller()
+        raise ScreenPilotError("Scrolling capture needs Windows", message_key="error.platform_not_supported")
+
+    def start_scrolling(self, rect: Rect, **options) -> None:
+        if self._scroll_indicator is not None:
+            return
+        try:
+            scroller = self._make_scroller()
+        except ScreenPilotError as exc:
+            self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
+            return
+        self.hide_chrome()
+        from screenpilot.ui.preview import ScrollIndicator
+
+        indicator = ScrollIndicator(self.app.translator, physical_to_logical(Point(rect.x, rect.bottom), self.app.capture.monitors()))
+        self._scroll_indicator = indicator
+        indicator.show_near()
+
+        def run() -> None:
+            try:
+                result, reason = self.app.capture.capture_scrolling(rect, scroller, **options)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Scrolling capture failed")
+                self.scroll_finished.emit(None, str(exc), scroller)
+                return
+            self.scroll_finished.emit(result, reason, scroller)
+
+        threading.Thread(target=run, name="ScrollingCapture", daemon=True).start()
+
+    def _on_scroll_finished(self, result: CaptureResult | None, reason: str, scroller) -> None:
+        restore = getattr(scroller, "restore_cursor", None)
+        if restore is not None:
+            restore()
+        if self._scroll_indicator is not None:
+            self._scroll_indicator.close()
+            self._scroll_indicator = None
+        if result is None:
+            self.notify.emit(self.t("notify.failed.title"), reason, True)
+            return
+        if reason == "no_match":
+            self.notify.emit(self.t("action.capture.scrolling"), self.t("scroll.no_match"), False)
+        elif reason == "end" and result.image.height <= result.metadata.get("view_height", 0):
+            self.notify.emit(self.t("action.capture.scrolling"), self.t("scroll.not_scrollable"), False)
+        self.process(result)
 
     def capture_window(self) -> None:
         self._guard(self.app.capture.capture_window)
@@ -289,6 +366,7 @@ class AppController(QObject):
             temp_file=lambda: self.temp_file(result),
         )
         preview.pin_requested.connect(self.pin)
+        preview.more_requested.connect(lambda r: self.start_scrolling(r.region))
         preview.closed.connect(lambda: setattr(self, "_preview", None) if self._preview is preview else None)
         self._preview = preview
         preview.show_animated()
@@ -340,6 +418,8 @@ class AppController(QObject):
     def _on_event(self, event: Event) -> None:
         if event.name == "editor.open_requested":
             self._not_available()
+        elif event.name == "capture.scroll_progress" and self._scroll_indicator is not None:
+            self._scroll_indicator.set_progress(event.payload["frames"], event.payload["height"])
 
     def _not_available(self) -> None:
         self.notify.emit(self.t("app.name"), self.t("notify.not_available"), False)

@@ -217,5 +217,16 @@
   "edgebar.hub": "Deschide ScreenPilot",
   "edgebar.history": "Istoric capturi",
   "edgebar.video": "Înregistrare ecran (în curând)",
-  "edgebar.hide": "Ascunde bara de captură (o reactivezi din Setări)"
+  "edgebar.hide": "Ascunde bara de captură (o reactivezi din Setări)",
+  "action.capture.scrolling": "Captură cu derulare",
+  "selector.action.scroll": "Captură cu derulare  (S)",
+  "scroll.progress": "Derulez… {frames} cadre · {height} px  ·  Esc pentru oprire",
+  "scroll.starting": "Pornesc captura cu derulare…  Esc pentru oprire",
+  "scroll.no_match": "Pagina s-a schimbat în timpul derulării; captura se oprește aici.",
+  "scroll.not_scrollable": "Zona nu se derulează. A fost salvată ca o captură normală.",
+  "preview.more": "Capturează mai mult ↓",
+  "preview.more.tip": "Derulează în jos și extinde captura",
+  "hub.tip.scrolling": "Selectează o zonă care se derulează; ScreenPilot derulează și o lipește",
+  "edgebar.scroll": "Captură cu derulare",
+  "hub.mode.scrolling.hint": "Selectezi, apoi derulează"
 }

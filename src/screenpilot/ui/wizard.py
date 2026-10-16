@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QVBoxLayout, QWiza
 from screenpilot.ui.controller import AppController
 from screenpilot.ui.qt_helpers import Retranslator, app_icon
 
-SHOWN_SHORTCUTS = ("capture.region", "capture.window", "capture.fullscreen", "capture.all_monitors", "capture.delayed")
+SHOWN_SHORTCUTS = ("capture.region", "capture.window", "capture.fullscreen", "capture.all_monitors", "capture.delayed", "capture.scrolling")
 
 
 class FirstRunWizard(QWizard):

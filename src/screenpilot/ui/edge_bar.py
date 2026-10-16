@@ -35,6 +35,7 @@ BUTTONS = (
     ("window", "hub.mode.window", "capture.window"),
     ("monitor", "hub.mode.screen", "capture.fullscreen"),
     ("monitors", "hub.mode.all", "capture.all_monitors"),
+    ("scroll", "hub.mode.scrolling", "capture.scrolling"),
     ("timer", "edgebar.delay", "delayed"),
     ("video", "edgebar.video", None),
     ("|", None, None),
@@ -269,7 +270,7 @@ class EdgeBar(QWidget):
         )
         for button in self.buttons.values():
             name = button.property("icon_name")
-            color = t.accent if name in ("region", "window", "monitor", "monitors", "timer") else t.text_secondary
+            color = t.accent if name in ("region", "window", "monitor", "monitors", "scroll", "timer") else t.text_secondary
             button.setIcon(icons.icon(name, color, 22, t.text_muted))
         self.update()
 

@@ -64,6 +64,7 @@ ACTION_DEFAULT = "default"
 ACTION_COPY = "copy"
 ACTION_SAVE_AS = "save_as"
 ACTION_PIN = "pin"
+ACTION_SCROLL = "scroll"
 
 HANDLE_CURSORS = {
     "nw": Qt.CursorShape.SizeFDiagCursor,
@@ -143,6 +144,7 @@ class ActionBar(QFrame):
         self.buttons: dict[str, QToolButton] = {}
         spec = (
             ("check", "selector.action.capture", ACTION_DEFAULT, True),
+            ("scroll", "selector.action.scroll", ACTION_SCROLL, True),
             ("copy", "selector.action.copy", ACTION_COPY, True),
             ("save_as", "selector.action.save", ACTION_SAVE_AS, True),
             ("pin", "selector.action.pin", ACTION_PIN, True),
@@ -348,6 +350,8 @@ class MonitorOverlay(QWidget):
             self._confirm(ACTION_SAVE_AS)
         elif key == Qt.Key.Key_P and not ctrl:
             self._confirm(ACTION_PIN)
+        elif key == Qt.Key.Key_S and not ctrl:
+            self._confirm(ACTION_SCROLL)
         elif key in arrows:
             dx, dy = arrows[key]
             self.model.nudge(dx, dy, resize=resize)

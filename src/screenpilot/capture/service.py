@@ -31,6 +31,8 @@ MODE_WINDOW = "window"
 MODE_MONITOR = "monitor"
 MODE_CURRENT_MONITOR = "current_monitor"
 MODE_ALL_MONITORS = "all_monitors"
+MODE_SCROLLING = "scrolling"
+EVENT_SCROLL_PROGRESS = "capture.scroll_progress"
 
 DELAY_PRESETS = (3, 5, 10)
 MAX_DELAY_SECONDS = 600
@@ -145,6 +147,37 @@ class CaptureService:
         if window is None:
             raise CaptureError(f"No window at {point}")
         return self.capture_window(window)
+
+    # -- scrolling ------------------------------------------------------------
+    def capture_scrolling(self, rect: Rect, scroller, **options: Any) -> tuple[CaptureResult, str]:
+        """Scroll ``rect`` with ``scroller`` and stitch one tall capture.
+
+        Blocking: run from a worker thread. Returns (result, reason); see
+        :func:`screenpilot.capture.scrolling.capture_scrolling` for reasons.
+        """
+        from screenpilot.capture.scrolling import capture_scrolling
+
+        area = self.desktop().clamp(rect)
+        if area.is_empty:
+            raise CaptureError(f"Region {rect} is outside all monitors")
+
+        def grab(r: Rect):
+            with self._lock:
+                return self.backend.grab(r)
+
+        def progress(frames: int, height: int) -> None:
+            self.bus.publish(EVENT_SCROLL_PROGRESS, frames=frames, height=height)
+
+        image, reason = capture_scrolling(grab, area, scroller, progress=progress, **options)
+        result = CaptureResult(
+            image=image,
+            mode=MODE_SCROLLING,
+            region=area,
+            metadata={"backend": self.backend.name, "scroll_end": reason, "view_height": area.height},
+        )
+        self.last_request = CaptureRequest(MODE_REGION, {"rect": str(area)})
+        self.bus.publish(EVENT_COMPLETED, result=result)
+        return result, reason
 
     # -- delayed --------------------------------------------------------------
     def capture_delayed(

@@ -42,7 +42,7 @@ TILES = (
     ("window", "hub.mode.window", "capture.window", False),
     ("monitor", "hub.mode.screen", "capture.fullscreen", False),
     ("monitors", "hub.mode.all", "capture.all_monitors", False),
-    ("scroll", "hub.mode.scrolling", None, True),
+    ("scroll", "hub.mode.scrolling", "capture.scrolling", False),
     ("video", "hub.mode.video", None, True),
 )
 

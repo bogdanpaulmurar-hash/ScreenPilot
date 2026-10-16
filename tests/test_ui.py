@@ -220,6 +220,49 @@ class RegionSelectorTests(UiTestCase):
         QTest.keyClick(overlay, Qt.Key.Key_Escape)
 
 
+class ScrollingUiTests(UiTestCase):
+    def _fake_window(self):
+        from test_scrolling import FakeScrollingWindow
+
+        win = FakeScrollingWindow()
+        self.backend.grab = win.grab  # the live screen now shows the scrolling page
+        self.controller.scroller_factory = lambda: win
+        return win
+
+    def test_selector_s_key_runs_scrolling_capture(self):
+        from test_scrolling import HEADER, PAGE_H
+
+        overlay = self.open_selector()
+        self.select(overlay, QPoint(0, 0), QPoint(419, 299))
+        win = self._fake_window()
+        QTest.keyClick(overlay, Qt.Key.Key_S)
+        self.assertTrue(wait_until(lambda: self.captured, timeout=20))
+        result, path, error = self.captured[0]
+        self.assertEqual(result.mode, "scrolling")
+        self.assertEqual(result.image.height, HEADER + PAGE_H)
+        self.assertGreater(win.scrolls, 3)
+        self.assertIsNotNone(path)
+        self.assertIsNone(self.controller._scroll_indicator)
+
+    def test_hub_scrolling_tile_and_preview_capture_more(self):
+        self.app.settings.set("capture.show_preview", True)
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: self.controller._preview is not None))
+        preview = self.controller._preview
+        self.assertTrue(preview.more_button.isVisible())
+        win = self._fake_window()
+        self.controller.start_scrolling(Rect(0, 0, 420, 300), settle=lambda: None)
+        indicator = self.controller._scroll_indicator
+        self.assertIsNotNone(indicator)
+        shot(indicator, "20_scroll_indicator")
+        self.assertTrue(wait_until(lambda: len(self.captured) >= 2, timeout=20))
+        self.assertEqual(self.captured[-1][0].mode, "scrolling")
+        self.assertTrue(wait_until(lambda: self.controller._preview is not None))
+        self.assertFalse(hasattr(self.controller._preview, "more_button"))
+        shot(self.controller._preview, "21_preview_after_scrolling")
+        del win
+
+
 class PreviewTests(UiTestCase):
     def test_quick_preview_after_capture(self):
         self.app.settings.set("capture.show_preview", True)

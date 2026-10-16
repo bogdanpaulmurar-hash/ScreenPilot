@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -98,6 +99,7 @@ class DragThumbnail(QLabel):
 
 class QuickPreview(QWidget):
     pin_requested = Signal(object)  # CaptureResult
+    more_requested = Signal(object)  # CaptureResult: extend downwards with a scrolling capture
     closed = Signal()
 
     def __init__(
@@ -183,6 +185,15 @@ class QuickPreview(QWidget):
             actions.addWidget(button)
             self.buttons[name] = button
         actions.addStretch(1)
+        if result.mode != "scrolling":
+            more = QPushButton()
+            more.setProperty("accent", True)
+            more.setCursor(Qt.CursorShape.PointingHandCursor)
+            rt.bind(more.setText, "preview.more")
+            rt.bind(more.setToolTip, "preview.more.tip")
+            more.clicked.connect(lambda: (self.more_requested.emit(self.result), self.dismiss()))
+            actions.addWidget(more)
+            self.more_button = more
         layout.addLayout(actions)
 
         rt.on_change(self._refresh_title)
@@ -243,6 +254,63 @@ class QuickPreview(QWidget):
     def closeEvent(self, event) -> None:  # noqa: N802
         self.closed.emit()
         super().closeEvent(event)
+
+
+class ScrollIndicator(QWidget):
+    """Progress pill shown below the region while a scrolling capture runs."""
+
+    def __init__(self, translator: Translator, anchor: QPoint) -> None:
+        super().__init__(None)
+        self.t = translator.t
+        self.anchor = anchor
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+            | Qt.WindowType.WindowTransparentForInput
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.text = self.t("scroll.starting")
+        self.setFixedHeight(40)
+
+    def set_progress(self, frames: int, height: int) -> None:
+        self.text = self.t("scroll.progress", frames=frames, height=height)
+        self._fit()
+        self.update()
+
+    def _fit(self) -> None:
+        from screenpilot.ui.theme import ui_font
+
+        self.setFont(ui_font(10))
+        self.setFixedWidth(self.fontMetrics().horizontalAdvance(self.text) + 48)
+
+    def show_near(self) -> None:
+        """Below the region (outside it, so it never appears in the frames)."""
+        self._fit()
+        area = QGuiApplication.screenAt(self.anchor) or QGuiApplication.primaryScreen()
+        geo = area.availableGeometry()
+        x = min(max(geo.left() + 8, self.anchor.x()), geo.right() - self.width() - 8)
+        y = self.anchor.y() + 12
+        if y + self.height() > geo.bottom():
+            y = geo.top() + 12  # region reaches the bottom: show at the top of the screen
+        self.move(x, y)
+        self.show()
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(32, 32, 32, 235))
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        p.setBrush(QColor(theme().accent).lighter(150))
+        p.drawEllipse(QRectF(r.left() + 14, r.center().y() - 4, 8, 8))
+        p.setPen(QColor("white"))
+        p.drawText(r.adjusted(30, 0, -12, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text)
+        p.end()
 
 
 class PinWindow(QWidget):

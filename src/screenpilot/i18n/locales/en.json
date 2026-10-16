@@ -217,5 +217,16 @@
   "edgebar.hub": "Open ScreenPilot",
   "edgebar.history": "Capture history",
   "edgebar.video": "Screen recording (coming soon)",
-  "edgebar.hide": "Hide the capture bar (turn it back on in Settings)"
+  "edgebar.hide": "Hide the capture bar (turn it back on in Settings)",
+  "action.capture.scrolling": "Scrolling capture",
+  "selector.action.scroll": "Scrolling capture  (S)",
+  "scroll.progress": "Scrolling… {frames} frames · {height} px  ·  Esc to stop",
+  "scroll.starting": "Starting scrolling capture…  Esc to stop",
+  "scroll.no_match": "The page changed while scrolling; the capture stops here.",
+  "scroll.not_scrollable": "This area doesn't scroll. Saved as a normal capture.",
+  "preview.more": "Capture more ↓",
+  "preview.more.tip": "Scroll down and extend this capture",
+  "hub.tip.scrolling": "Select an area that scrolls; ScreenPilot scrolls and stitches it",
+  "edgebar.scroll": "Scrolling capture",
+  "hub.mode.scrolling.hint": "Select, then it scrolls"
 }
