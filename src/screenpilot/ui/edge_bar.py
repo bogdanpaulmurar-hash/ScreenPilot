@@ -84,7 +84,7 @@ class EdgeBar(QWidget):
                 Qt.ToolButtonStyle.ToolButtonTextUnderIcon if action and action.startswith("capture.") or action == "delayed"
                 else Qt.ToolButtonStyle.ToolButtonIconOnly
             )
-            button.setFixedWidth(BUTTON_W if button.toolButtonStyle() != Qt.ToolButtonStyle.ToolButtonIconOnly else 40)
+            button.setMinimumWidth(BUTTON_W if button.toolButtonStyle() != Qt.ToolButtonStyle.ToolButtonIconOnly else 40)
             button.setIconSize(QSize(22, 22))
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setFont(ui_font(8.5))
