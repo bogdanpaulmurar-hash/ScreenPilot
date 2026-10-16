@@ -48,7 +48,8 @@ class TranslatorTests(unittest.TestCase):
         self.assertEqual(changes, ["ro"])
 
     def test_unknown_language_falls_back_to_english(self):
-        tr = Translator("xx")
+        with self.assertLogs("screenpilot.i18n.translator", level="WARNING"):
+            tr = Translator("xx")
         self.assertEqual(tr.language, "en")
 
     def test_missing_key_returns_key_and_missing_param_kept(self):
