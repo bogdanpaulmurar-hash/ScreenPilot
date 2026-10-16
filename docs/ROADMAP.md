@@ -49,7 +49,7 @@ capture reliability, hotkey ergonomics.
 | Milestone | Content | Exit criteria |
 |---|---|---|
 | **M0 Foundation** ✅ | core, i18n EN/RO, settings, capture engine, hotkeys, workflow, CLI, Windows CI | tests green on Windows CI |
-| **M1 Desktop shell** | tray app, region selector overlay (magnifier, crosshair, window snapping, pixel coordinates), delayed capture countdown, settings window with live language switch, hotkey manager UI, first-run wizard, capture history | daily-usable replacement for Snipping Tool |
+| **M1 Desktop shell** ✅ | tray app, region selector overlay (magnifier, crosshair, window snapping, pixel coordinates), delayed capture countdown, settings window with live language switch, hotkey manager UI, first-run wizard, capture history | daily-usable replacement for Snipping Tool |
 | **M2 Editor + Steps** | annotation document model (arrows, shapes, text, callouts, step numbers, blur/pixelate, spotlight, crop), step capture, scrolling capture | can document a 10-step procedure |
 | **M3 OCR** | `OcrEngine` protocol, Windows OCR backend (EN/RO/DE), confidence, review, search, OCR→clipboard/TXT/MD | Screenshot→OCR→Clipboard in ≤ 2 clicks |
 | **M4 Documentation** | workflow capture sessions, document model, exports PDF/DOCX/HTML/MD, templates, help center, tutorials, tester mode, samples | one-click procedure document |
@@ -58,12 +58,13 @@ capture reliability, hotkey ergonomics.
 
 ## 4. Quick wins (next, in order)
 
-1. Region selector overlay with magnifier and window snapping (M1 core UX).
-2. Tray icon + global hotkeys wired to `CaptureService` and the workflow.
-3. Settings window with live EN/RO switch (already supported by the core).
-4. Capture history (last N captures, re-copy / re-open).
-5. Windows OCR backend (no dependency) — high value, low cost.
-6. Cursor inclusion option in captures.
+Done in M1: region selector with magnifier and snapping, tray + global
+hotkeys, live EN/RO settings, capture history.
+
+1. Windows OCR backend (built into Windows, no dependency) — high value, low cost.
+2. Editor v1: arrows, rectangles, text, step numbers, blur, crop.
+3. Cursor inclusion option in captures.
+4. Packaging: single-folder portable build + installer.
 
 ## 5. Risks
 

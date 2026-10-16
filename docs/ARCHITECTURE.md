@@ -1,6 +1,6 @@
 # ScreenPilot Architecture
 
-Status: M0 (foundation) — October 2026.
+Status: M1 (desktop shell) — October 2026.
 
 ## Goals that drive the design
 
@@ -16,7 +16,7 @@ Status: M0 (foundation) — October 2026.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  Clients:  Desktop UI (Qt, M1)  ·  CLI  ·  Autopilot       │
+│  Clients:  Desktop UI (Qt)  ·  CLI  ·  Autopilot           │
 ├────────────────────────────────────────────────────────────┤
 │  Facade:   screenpilot.app.create_app() -> ScreenPilotApp  │
 │            (composition root + ServiceRegistry)            │
@@ -45,7 +45,9 @@ Status: M0 (foundation) — October 2026.
 | `hotkeys` | parsing, bindings, conflicts, diagnostics, profiles | done |
 | `workflow` | chained post-capture actions | done (core actions) |
 | `platform` | clipboard, shell reveal | done (Windows) |
-| `ui` | Qt shell, region selector, tray, settings, wizard | M1 |
+| `ui` | Qt tray, region selector, countdown, settings, hotkeys, history, wizard | done |
+| `history` | recent captures + thumbnails | done |
+| `samples` | synthetic demo desktop for demos, tutorials, tests | done |
 | `editor` | annotation document model + Qt canvas | M2 |
 | `ocr` | `OcrEngine` protocol; Windows.Media.Ocr, Tesseract | M3 |
 | `docs_engine` | step/workflow documents; PDF/DOCX/HTML/MD export | M4 |

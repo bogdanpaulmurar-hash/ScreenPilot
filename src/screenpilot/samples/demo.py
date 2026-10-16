@@ -49,8 +49,15 @@ def _window(draw: ImageDraw.ImageDraw, box: Rect, title: str) -> None:
     draw.rectangle((box.x, box.y, box.right - 1, box.bottom - 1), fill=WINDOW, outline=BORDER)
     draw.rectangle((box.x, box.y, box.right - 1, box.y + 31), fill=TITLE)
     draw.text((box.x + 12, box.y + 8), title, fill=TEXT, font=_font(13))
-    for i, glyph in enumerate(("✕", "☐", "—")):  # right to left
-        draw.text((box.right - 34 - i * 40, box.y + 7), glyph, fill=TEXT, font=_font(13))
+    # Caption buttons drawn as shapes (no dependency on symbol fonts): close, maximize, minimize.
+    cy = box.y + 16
+    cx = box.right - 24
+    draw.line((cx - 5, cy - 5, cx + 5, cy + 5), fill=TEXT, width=1)
+    draw.line((cx - 5, cy + 5, cx + 5, cy - 5), fill=TEXT, width=1)
+    cx -= 44
+    draw.rectangle((cx - 5, cy - 5, cx + 5, cy + 5), outline=TEXT)
+    cx -= 44
+    draw.line((cx - 5, cy, cx + 5, cy), fill=TEXT, width=1)
 
 
 def render_demo_desktop(width: int, height: int) -> DemoDesktop:
