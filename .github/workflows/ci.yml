@@ -30,7 +30,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
       - name: Unit and Windows integration tests
-        run: python -m pytest -q
+        run: python -m pytest -q --junitxml=junit.xml
+      - name: Report failures as annotations
+        if: failure()
+        run: python scripts/junit_annotations.py junit.xml
       - name: CLI smoke test
         if: runner.os == 'Windows'
         run: |
