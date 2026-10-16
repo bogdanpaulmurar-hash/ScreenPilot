@@ -23,8 +23,16 @@ def main(path: str) -> int:
     except (OSError, ET.ParseError) as exc:
         print(f"::warning::No JUnit report ({exc})")
         return 0
+    cases = list(root.iter("testcase"))
+    skipped: dict[str, int] = {}
+    for case in cases:
+        if case.find("skipped") is not None:
+            module = (case.get("classname") or "?").split(".")[-2]
+            skipped[module] = skipped.get(module, 0) + 1
+    summary = ", ".join(f"{m}={n}" for m, n in sorted(skipped.items())) or "none"
+    print(f"::notice title=Test summary::{len(cases)} tests, skipped: {summary}")
     count = 0
-    for case in root.iter("testcase"):
+    for case in cases:
         for problem in list(case.findall("failure")) + list(case.findall("error")):
             if count >= MAX_ANNOTATIONS:
                 return 0

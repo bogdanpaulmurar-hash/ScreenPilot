@@ -37,8 +37,8 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           SCREENPILOT_UI_SHOTS: ui-screenshots
         run: python -m pytest -q --junitxml=junit.xml
-      - name: Report failures as annotations
-        if: failure()
+      - name: Report test summary and failures as annotations
+        if: always()
         run: python scripts/junit_annotations.py junit.xml
       - name: CLI smoke test
         if: runner.os == 'Windows'
