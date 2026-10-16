@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("version")
+    sub.add_parser("gui", help="start the desktop app (system tray)")
     sub.add_parser("monitors")
     sub.add_parser("windows")
     sub.add_parser("hotkeys")
@@ -74,6 +75,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "version":
         print(f"ScreenPilot {__version__}")
         return 0
+    if args.command == "gui":
+        from screenpilot.ui.main import main as gui_main
+
+        return gui_main([sys.argv[0]])
 
     from screenpilot.app import create_app
 

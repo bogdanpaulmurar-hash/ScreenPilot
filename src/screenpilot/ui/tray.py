@@ -1,0 +1,127 @@
+"""System tray icon and menu (the app's main entry point for the user)."""
+
+from __future__ import annotations
+
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import QMenu, QMessageBox, QSystemTrayIcon
+
+from screenpilot import __version__
+from screenpilot.capture.service import DELAY_PRESETS
+from screenpilot.ui.controller import AppController
+from screenpilot.ui.qt_helpers import app_icon
+
+CAPTURE_ACTIONS = (
+    "capture.region",
+    "capture.window",
+    "capture.fullscreen",
+    "capture.all_monitors",
+    "capture.repeat_last",
+)
+NOTIFY_MS = 3500
+
+
+class TrayIcon(QSystemTrayIcon):
+    def __init__(self, controller: AppController) -> None:
+        super().__init__(app_icon())
+        self.controller = controller
+        self.app = controller.app
+        rt = controller.retranslator
+
+        menu = QMenu()
+        self._menu = menu
+        for action_id in CAPTURE_ACTIONS:
+            action = QAction(menu)
+            rt.bind(action.setText, f"action.{action_id}")
+            action.triggered.connect(lambda _=False, a=action_id: controller.trigger(a, from_menu=True))
+            action.setData(action_id)
+            menu.addAction(action)
+        self._shortcut_actions = [a for a in menu.actions() if a.data()]
+
+        delayed = QMenu(menu)
+        rt.bind(delayed.setTitle, "tray.menu.delayed")
+        for seconds in DELAY_PRESETS:
+            action = QAction(delayed)
+            rt.bind(action.setText, "tray.menu.delay_seconds", seconds=seconds)
+            action.triggered.connect(lambda _=False, s=seconds: controller.capture_delayed(s))
+            delayed.addAction(action)
+        menu.addMenu(delayed)
+        menu.addSeparator()
+
+        for key, slot in (
+            ("tray.menu.history", controller.show_history),
+            ("tray.menu.open_folder", controller.open_captures_folder),
+        ):
+            action = QAction(menu)
+            rt.bind(action.setText, key)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+        menu.addSeparator()
+
+        language_menu = QMenu(menu)
+        rt.bind(language_menu.setTitle, "tray.menu.language")
+        group = QActionGroup(language_menu)
+        self._language_actions: dict[str, QAction] = {}
+        for code, name in self.app.translator.available_languages().items():
+            action = QAction(name, language_menu, checkable=True)
+            action.setChecked(code == self.app.translator.language)
+            action.triggered.connect(lambda _=False, c=code: self.app.settings.set("general.language", c))
+            group.addAction(action)
+            language_menu.addAction(action)
+            self._language_actions[code] = action
+        menu.addMenu(language_menu)
+
+        for key, slot in (
+            ("tray.menu.settings", controller.show_settings),
+            ("tray.menu.getting_started", controller.show_wizard),
+            ("tray.menu.about", self.show_about),
+        ):
+            action = QAction(menu)
+            rt.bind(action.setText, key)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+        menu.addSeparator()
+        exit_action = QAction(menu)
+        rt.bind(exit_action.setText, "tray.menu.exit")
+        exit_action.triggered.connect(controller.quit)
+        menu.addAction(exit_action)
+
+        self.setContextMenu(menu)
+        rt.on_change(self._refresh)
+        self._refresh()
+        controller.notify.connect(self._on_notify)
+        self.activated.connect(self._on_activated)
+        self._unsub = self.app.settings.add_listener(self._on_setting)
+        controller.hotkeys_changed.connect(self._refresh)
+
+    def _refresh(self) -> None:
+        """Shortcut hints in the menu and tooltip follow bindings and language."""
+        t = self.app.translator.t
+        for action in self._shortcut_actions:
+            hotkey = self.app.hotkeys.binding(action.data())
+            label = t(f"action.{action.data()}")
+            action.setText(f"{label}\t{hotkey}" if hotkey else label)
+        region = self.app.hotkeys.binding("capture.region")
+        self.setToolTip(t("tray.tooltip", hotkey=region or "-"))
+        for code, action in self._language_actions.items():
+            action.setChecked(code == self.app.translator.language)
+
+    def refresh(self) -> None:
+        self._refresh()
+
+    def _on_setting(self, key: str, _value) -> None:
+        if key == "general.language":
+            self._refresh()
+
+    def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:  # single left click
+            self.controller.trigger("capture.region", from_menu=True)
+        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.controller.show_history()
+
+    def _on_notify(self, title: str, body: str, is_error: bool) -> None:
+        icon = QSystemTrayIcon.MessageIcon.Warning if is_error else QSystemTrayIcon.MessageIcon.Information
+        self.showMessage(title, body, icon, NOTIFY_MS)
+
+    def show_about(self) -> None:
+        t = self.app.translator.t
+        QMessageBox.about(None, t("tray.menu.about"), t("about.body", version=__version__))
