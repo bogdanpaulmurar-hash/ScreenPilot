@@ -51,6 +51,7 @@ capture reliability, hotkey ergonomics.
 | **M0 Foundation** ✅ | core, i18n EN/RO, settings, capture engine, hotkeys, workflow, CLI, Windows CI | tests green on Windows CI |
 | **M1 Desktop shell** ✅ | tray app, region selector overlay (magnifier, crosshair, window snapping, pixel coordinates), delayed capture countdown, settings window with live language switch, hotkey manager UI, first-run wizard, capture history | daily-usable replacement for Snipping Tool |
 | **M1.5 Modern UI** ✅ | Fluent theme light/dark, Capture Hub, edge capture bar, selector action bar, quick preview with drag-and-drop, pin to screen | looks and feels on par with Snagit |
+| **M1.6 Smart capture** ✅ | frame auto-detection with parent levels, scrolling capture (+ capture more), step numbering attached to elements, history size setting | procedures documented in a few clicks |
 | **M2 Editor + Steps** | annotation document model (arrows, shapes, text, callouts, step numbers, blur/pixelate, spotlight, crop), step capture, scrolling capture | can document a 10-step procedure |
 | **M3 OCR** | `OcrEngine` protocol, Windows OCR backend (EN/RO/DE), confidence, review, search, OCR→clipboard/TXT/MD | Screenshot→OCR→Clipboard in ≤ 2 clicks |
 | **M4 Documentation** | workflow capture sessions, document model, exports PDF/DOCX/HTML/MD, templates, help center, tutorials, tester mode, samples | one-click procedure document |
