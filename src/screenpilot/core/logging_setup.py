@@ -15,12 +15,18 @@ MAX_BYTES = 1_000_000
 BACKUP_COUNT = 5
 
 
-def configure_logging(log_dir: Path | None, *, level: int = logging.INFO, console: bool = False) -> None:
+def close_logging() -> None:
+    """Flush and close ScreenPilot's log handlers (releases the file lock on Windows)."""
     root = logging.getLogger("screenpilot")
-    root.setLevel(level)
     for handler in list(root.handlers):
         root.removeHandler(handler)
         handler.close()
+
+
+def configure_logging(log_dir: Path | None, *, level: int = logging.INFO, console: bool = False) -> None:
+    root = logging.getLogger("screenpilot")
+    root.setLevel(level)
+    close_logging()
 
     formatter = logging.Formatter(LOG_FORMAT)
     if log_dir is not None:

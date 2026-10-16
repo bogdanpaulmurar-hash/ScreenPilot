@@ -9,6 +9,7 @@ from unittest import mock
 from screenpilot import __main__ as cli
 from screenpilot.app import create_app
 from screenpilot.capture import CaptureService, Rect
+from screenpilot.core.logging_setup import close_logging
 from screenpilot.core.paths import AppPaths
 from screenpilot.i18n import Translator
 
@@ -22,6 +23,7 @@ class AppTests(unittest.TestCase):
         self.paths = AppPaths.under(Path(self._tmp.name), portable=True)
 
     def tearDown(self):
+        close_logging()  # Windows cannot delete an open log file
         self._tmp.cleanup()
 
     def make(self, **kw):

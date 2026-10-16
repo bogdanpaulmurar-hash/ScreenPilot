@@ -20,7 +20,7 @@ from typing import Callable
 from screenpilot import __version__
 from screenpilot.capture import CaptureBackend, CaptureResult, CaptureService, default_backend
 from screenpilot.core.events import EventBus
-from screenpilot.core.logging_setup import configure_logging
+from screenpilot.core.logging_setup import close_logging, configure_logging
 from screenpilot.core.paths import AppPaths, resolve_paths
 from screenpilot.core.services import ServiceRegistry
 from screenpilot.hotkeys import HotkeyManager
@@ -80,6 +80,8 @@ class ScreenPilotApp:
             self.hotkeys.save(self.paths.hotkeys_file)
         except OSError:
             log.exception("Could not persist state on shutdown")
+        log.info("ScreenPilot stopped")
+        close_logging()
 
 
 def create_app(
