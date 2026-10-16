@@ -168,6 +168,31 @@ class RegionSelectorTests(UiTestCase):
         self.assertTrue(wait_until(lambda: self.captured))
         self.assertEqual(self.captured[0][0].region, self.window.bounds)
 
+    def test_auto_detected_frames_and_wheel_to_parent(self):
+        overlay = self.open_selector()
+        erp = self.window.bounds
+        field_point = QPoint(erp.x - self.screen_rect.x + 300, erp.y - self.screen_rect.y + 70)
+        target = Point(erp.x + 300, erp.y + 70)
+
+        def field_found():
+            QTest.mouseMove(overlay, field_point + QPoint(1, 0))
+            QTest.mouseMove(overlay, field_point)
+            rect = overlay.model.hover_rect()
+            return rect is not None and rect.height == 27
+
+        self.assertTrue(wait_until(field_found, timeout=5))
+        shot(overlay, "03b_selector_auto_frame_field")
+        overlay.model.cycle(+1)
+        parent = overlay.model.hover_rect()
+        self.assertTrue(parent.contains(target) and parent.height > 27)
+        overlay.model.cycle(+10)
+        self.assertEqual(overlay.model.hover_rect(), erp)
+        overlay.model.cycle(-10)
+        QTest.mouseClick(overlay, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, field_point)
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertEqual(self.captured[0][0].region.height, 27)
+
     def test_pin_with_p_key(self):
         overlay = self.open_selector()
         self.select(overlay, QPoint(300, 150), QPoint(520, 300))

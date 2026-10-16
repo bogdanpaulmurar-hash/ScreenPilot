@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
+from typing import Callable, Sequence
 
 from screenpilot.capture.geometry import Point, Rect, WindowInfo
 
@@ -53,8 +53,13 @@ class SelectionModel:
         *,
         snap: bool = True,
         handle_size: int = 8,
+        frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
     ) -> None:
         self.bounds = bounds
+        self.frames = frames  # inner frame detection (image edges, child controls)
+        self.level = 0  # 0 = innermost frame under the cursor; wheel/Tab go outward
+        self._candidates_at: Point | None = None
+        self._candidates: list[Rect] = []
         self.windows = [w for w in windows if not w.bounds.intersect(bounds).is_empty]
         self.snap = snap
         self.handle_size = handle_size
@@ -80,9 +85,47 @@ class SelectionModel:
                 return window
         return None
 
-    def hover_rect(self) -> Rect | None:
+    def hover_candidates(self) -> list[Rect]:
+        """Frames under the cursor, innermost first, ending with the whole window."""
+        if not self.snap or self.state is not State.IDLE:
+            return []
+        if self._candidates_at == self.cursor:
+            return self._candidates
         window = self.hover_window()
-        return window.bounds.intersect(self.bounds) if window else None
+        outer = window.bounds.intersect(self.bounds) if window else None
+        found: list[Rect] = []
+        if self.frames is not None:
+            for rect in self.frames(self.cursor, window):
+                rect = rect.intersect(outer or self.bounds)
+                if rect.is_empty or rect.width < 4 or rect.height < 4 or not rect.contains(self.cursor):
+                    continue
+                if outer is not None and rect == outer:
+                    continue
+                found.append(rect)
+        found.sort(key=lambda r: r.area)
+        chain: list[Rect] = []
+        for rect in found:  # keep a strict nesting chain
+            if not chain or (rect.intersect(chain[-1]) == chain[-1] and rect != chain[-1]):
+                chain.append(rect)
+        if outer is not None:
+            chain.append(outer)
+        previous_inner = self._candidates[0] if self._candidates else None
+        self._candidates_at, self._candidates = self.cursor, chain
+        if not chain or chain[0] != previous_inner:
+            self.level = 0  # moved onto a different frame: start from the innermost again
+        return chain
+
+    def hover_rect(self) -> Rect | None:
+        candidates = self.hover_candidates()
+        if not candidates:
+            return None
+        return candidates[min(self.level, len(candidates) - 1)]
+
+    def cycle(self, delta: int) -> None:
+        """Walk outward (+1) or inward (-1) through the frames under the cursor."""
+        candidates = self.hover_candidates()
+        if candidates:
+            self.level = min(max(0, min(self.level, len(candidates) - 1) + delta), len(candidates) - 1)
 
     def handle_rects(self) -> dict[str, Rect]:
         if self.selection is None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -20,6 +21,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 
 from screenpilot.app import ScreenPilotApp
+from screenpilot.capture.detect import FrameFinder
 from screenpilot.capture.geometry import Point, Rect
 from screenpilot.capture.image import CaptureResult
 from screenpilot.core.errors import ScreenPilotError
@@ -147,7 +149,40 @@ class AppController(QObject):
         except ScreenPilotError as exc:
             self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
             return
-        self.selector.start(frozen, monitors, windows)
+        self.selector.start(frozen, monitors, windows, self._frame_provider(frozen))
+
+    def _frame_provider(self, frozen: CaptureResult):
+        """Inner frames under the cursor: detected boxes in the image + child controls."""
+        state: dict = {"finder": None, "children": {}}
+        backend = self.app.capture.backend
+
+        def build() -> None:
+            try:
+                state["finder"] = FrameFinder(frozen.image, Point(frozen.region.x, frozen.region.y))
+            except Exception:  # noqa: BLE001 - detection is a convenience, never fatal
+                log.exception("Frame detection unavailable")
+
+        threading.Thread(target=build, name="FrameFinder", daemon=True).start()
+
+        def frames(point: Point, window) -> list[Rect]:
+            found: list[Rect] = []
+            finder = state["finder"]
+            if finder is not None:
+                found.extend(finder.boxes_at(point))
+            child_lister = getattr(backend, "child_windows", None)
+            if window is not None and child_lister is not None:
+                children = state["children"].get(window.handle)
+                if children is None:
+                    try:
+                        children = [c.bounds for c in child_lister(window.handle)]
+                    except Exception:  # noqa: BLE001
+                        log.exception("Child window enumeration failed")
+                        children = []
+                    state["children"][window.handle] = children
+                found.extend(r for r in children if r.contains(point))
+            return found
+
+        return frames
 
     def _on_region_selected(self, outcome: tuple[Rect, str] | None) -> None:
         frozen = self.selector.frozen

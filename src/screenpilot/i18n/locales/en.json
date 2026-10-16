@@ -80,7 +80,7 @@
   "notify.copied.body": "{width}×{height} is in the clipboard",
   "notify.failed.title": "Capture failed",
   "notify.hotkey_conflicts": "Some shortcuts could not be registered. Open Settings › Hotkeys.",
-  "selector.hint": "Drag to select · Click a window · Enter to confirm · Esc to cancel",
+  "selector.hint": "Drag to select · Click a frame or window · Wheel: larger/smaller frame · Esc to cancel",
   "selector.adjust_hint": "Drag handles to resize · Arrows move · Alt+arrows resize · Enter to confirm",
   "selector.size": "{width} × {height}",
   "selector.position": "{x}, {y}",

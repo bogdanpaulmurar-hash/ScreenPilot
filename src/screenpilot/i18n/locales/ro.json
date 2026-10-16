@@ -80,7 +80,7 @@
   "notify.copied.body": "{width}×{height} este în clipboard",
   "notify.failed.title": "Captura a eșuat",
   "notify.hotkey_conflicts": "Unele taste rapide nu au putut fi înregistrate. Deschide Setări › Taste rapide.",
-  "selector.hint": "Trage pentru a selecta · Click pe o fereastră · Enter confirmă · Esc anulează",
+  "selector.hint": "Trage pentru a selecta · Click pe un chenar sau fereastră · Rotița: chenar mai mare/mai mic · Esc anulează",
   "selector.adjust_hint": "Trage de colțuri pentru redimensionare · Săgețile mută · Alt+săgeți redimensionează · Enter confirmă",
   "selector.size": "{width} × {height}",
   "selector.position": "{x}, {y}",

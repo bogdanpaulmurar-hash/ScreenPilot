@@ -107,6 +107,7 @@ _sig(user32.GetWindowThreadProcessId, wintypes.DWORD, wintypes.HWND, ctypes.POIN
 _sig(user32.IsWindowVisible, wintypes.BOOL, wintypes.HWND)
 _sig(user32.IsIconic, wintypes.BOOL, wintypes.HWND)
 _sig(user32.EnumWindows, wintypes.BOOL, WNDENUMPROC, wintypes.LPARAM)
+_sig(user32.EnumChildWindows, wintypes.BOOL, wintypes.HWND, WNDENUMPROC, wintypes.LPARAM)
 _sig(user32.WindowFromPoint, wintypes.HWND, wintypes.POINT)
 _sig(user32.GetAncestor, wintypes.HWND, wintypes.HWND, wintypes.UINT)
 _sig(user32.GetWindowRect, wintypes.BOOL, wintypes.HWND, ctypes.POINTER(wintypes.RECT))
@@ -341,6 +342,31 @@ class Win32CaptureBackend:
             return True
 
         user32.EnumWindows(WNDENUMPROC(callback), 0)
+        return result
+
+    def child_windows(self, handle: int, *, limit: int = 2000) -> Sequence[WindowInfo]:
+        """Visible child controls of a window (classic Win32 apps, many ERP clients).
+
+        Modern UI frameworks (browsers, WPF, UWP) draw controls without child
+        windows; for those the image-based frame detection takes over.
+        """
+        result: list[WindowInfo] = []
+
+        def callback(hwnd, _data):
+            try:
+                if len(result) >= limit:
+                    return False
+                if user32.IsWindowVisible(hwnd):
+                    rect = wintypes.RECT()
+                    if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                        bounds = _rect(rect)
+                        if bounds.width >= 6 and bounds.height >= 6:
+                            result.append(WindowInfo(int(hwnd), "", bounds))
+            except Exception:  # noqa: BLE001
+                log.exception("Child enumeration callback failed")
+            return True
+
+        user32.EnumChildWindows(handle, WNDENUMPROC(callback), 0)
         return result
 
     def window_at(self, point: Point, *, include_children: bool = False) -> WindowInfo | None:

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Sequence
+from typing import Callable, Sequence
 
 from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
@@ -188,11 +188,14 @@ class MonitorOverlay(QWidget):
         frozen_origin: Point,
         windows: Sequence[WindowInfo],
         translator: Translator,
+        frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
     ) -> None:
         super().__init__(None)
         self.monitor = monitor
         self.translator = translator
-        self.model = SelectionModel(monitor.bounds, windows, handle_size=max(10, round(10 * monitor.scale)))
+        self.model = SelectionModel(
+            monitor.bounds, windows, handle_size=max(10, round(10 * monitor.scale)), frames=frames
+        )
         self._frozen = frozen
         self._origin = frozen_origin
         b = monitor.bounds
@@ -300,6 +303,14 @@ class MonitorOverlay(QWidget):
             self.model.release(self.to_physical(event.position()))
             self._changed()
 
+    def focusNextPrevChild(self, next: bool) -> bool:  # noqa: N802, A002 - Tab cycles frames instead
+        return False
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        if self.model.state is State.IDLE:
+            self.model.cycle(1 if event.angleDelta().y() > 0 else -1)
+            self.update()
+
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
             self._confirm(ACTION_DEFAULT)
@@ -345,6 +356,9 @@ class MonitorOverlay(QWidget):
                 c = self.to_logical(Rect(self.model.cursor.x, self.model.cursor.y, 1, 1)).topLeft()
                 QCursor.setPos(self.mapToGlobal(c.toPoint()))
             self._changed()
+        elif key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab) and self.model.state is State.IDLE:
+            self.model.cycle(-1 if key == Qt.Key.Key_Backtab else 1)
+            self.update()
         elif key == Qt.Key.Key_A and ctrl:
             self.pressed.emit(self)
             self.model.select_all()
@@ -493,7 +507,13 @@ class RegionSelector(QObject):
     def active(self) -> bool:
         return bool(self.overlays)
 
-    def start(self, frozen: CaptureResult, monitors: Sequence[Monitor], windows: Sequence[WindowInfo]) -> None:
+    def start(
+        self,
+        frozen: CaptureResult,
+        monitors: Sequence[Monitor],
+        windows: Sequence[WindowInfo],
+        frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
+    ) -> None:
         if self.overlays:
             return
         self.frozen = frozen
@@ -501,7 +521,7 @@ class RegionSelector(QObject):
         origin = Point(frozen.region.x, frozen.region.y)
         cursor = QCursor.pos()
         for monitor, screen in match_screens(monitors, QGuiApplication.screens()):
-            overlay = MonitorOverlay(monitor, screen, image, origin, windows, self.translator)
+            overlay = MonitorOverlay(monitor, screen, image, origin, windows, self.translator, frames)
             overlay.pressed.connect(self._on_pressed)
             overlay.confirmed.connect(lambda rect, action: self._finish((rect, action)))
             overlay.cancelled.connect(lambda: self._finish(None))
