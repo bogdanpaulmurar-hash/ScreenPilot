@@ -10,16 +10,13 @@ import json
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QKeySequenceEdit,
@@ -32,7 +29,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
+    QScrollArea,
+    QStackedWidget,
+    QFrame,
     QVBoxLayout,
     QWidget,
 )
@@ -41,7 +40,9 @@ from screenpilot.capture.image import CaptureResult
 from screenpilot.core.errors import HotkeyError
 from screenpilot.hotkeys import Hotkey, RegistrationStatus, describe_conflicts
 from screenpilot.ui.controller import AppController
+from screenpilot.ui import icons
 from screenpilot.ui.qt_helpers import Retranslator, app_icon
+from screenpilot.ui.widgets import Card, IconBadge, SettingRow, ToggleSwitch, label, on_theme_changed
 from screenpilot.workflow import render_filename
 
 log = logging.getLogger(__name__)
@@ -76,26 +77,108 @@ class SettingsDialog(QDialog):
         self.destroyed.connect(lambda *_: rt.dispose())
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowIcon(app_icon())
-        self.setMinimumSize(640, 520)
+        self.setMinimumSize(860, 600)
         self.rt.bind(self.setWindowTitle, "settings.title")
 
-        self.tabs = QTabWidget(self)
-        for key, builder in (
-            ("settings.tab.general", self._build_general),
-            ("settings.tab.capture", self._build_capture),
-            ("settings.tab.after_capture", self._build_after_capture),
-            ("settings.tab.hotkeys", self._build_hotkeys),
+        # Windows 11 Settings layout: navigation on the left, pages of cards on the right.
+        self.nav = QListWidget()
+        self.nav.setObjectName("Nav")
+        self.nav.setFixedWidth(210)
+        self.nav.setIconSize(QSize(18, 18))
+        self.stack = QStackedWidget()
+        self.page_titles: list[QLabel] = []
+        for icon_name, key, builder in (
+            ("general", "settings.nav.general", self._build_general),
+            ("region", "settings.nav.capture", self._build_capture),
+            ("workflow", "settings.nav.after_capture", self._build_after_capture),
+            ("keyboard", "settings.nav.hotkeys", self._build_hotkeys),
         ):
-            page = builder()
-            index = self.tabs.addTab(page, "")
-            self.rt.bind(lambda text, i=index: self.tabs.setTabText(i, text), key)
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, icon_name)
+            self.nav.addItem(item)
+            self.rt.bind(item.setText, key)
+            self.stack.addWidget(self._page(key, builder()))
+        on_theme_changed(self, self._retheme_nav)
+        self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        self.nav.setCurrentRow(0)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
-        self.rt.bind(buttons.button(QDialogButtonBox.StandardButton.Close).setText, "settings.close")
-        buttons.rejected.connect(self.close)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.tabs)
-        layout.addWidget(buttons)
+        side = QVBoxLayout()
+        side.setContentsMargins(12, 16, 8, 16)
+        header = QHBoxLayout()
+        header.addWidget(IconBadge("logo", 22, token="accent"))
+        header.addWidget(label("ScreenPilot", "subtitle"), 1)
+        side.addLayout(header)
+        side.addSpacing(12)
+        side.addWidget(self.nav, 1)
+        close = QPushButton()
+        self.rt.bind(close.setText, "settings.close")
+        close.clicked.connect(self.close)
+        side.addWidget(close)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addLayout(side)
+        layout.addWidget(self.stack, 1)
+
+    @property
+    def tabs(self) -> "SettingsDialog._NavAdapter":
+        """Back-compat with the previous tabbed layout (tests, automation)."""
+        return SettingsDialog._NavAdapter(self)
+
+    class _NavAdapter:
+        def __init__(self, dialog: "SettingsDialog") -> None:
+            self._d = dialog
+
+        def setCurrentIndex(self, index: int) -> None:  # noqa: N802
+            self._d.nav.setCurrentRow(index)
+
+        def tabText(self, index: int) -> str:  # noqa: N802
+            return self._d.nav.item(index).text()
+
+    def _retheme_nav(self, t) -> None:
+        for row in range(self.nav.count()):
+            item = self.nav.item(row)
+            item.setIcon(icons.icon(item.data(Qt.ItemDataRole.UserRole), t.text_secondary, 18))
+
+    def _page(self, title_key: str, content: QWidget) -> QWidget:
+        page = QWidget()
+        page.setProperty("page", True)
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(28, 22, 28, 20)
+        outer.setSpacing(14)
+        title = label(role="display")
+        self.rt.bind(title.setText, title_key)
+        outer.addWidget(title)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+        outer.addWidget(scroll, 1)
+        return page
+
+    def _row(self, icon_name: str | None, title_key: str, desc_key: str | None, control: QWidget | None, **params) -> SettingRow:
+        row = SettingRow(icon_name, control)
+        self.rt.bind(row.title.setText, title_key, **params)
+        if desc_key:
+            self.rt.bind(row.description.setText, desc_key, **params)
+        else:
+            row.description.hide()
+        return row
+
+    def _toggle(self, key: str) -> ToggleSwitch:
+        toggle = ToggleSwitch()
+        toggle.setChecked(bool(self.settings.get(key)))
+        toggle.toggled.connect(lambda checked: self._set(key, checked))
+        return toggle
+
+    @staticmethod
+    def _column() -> tuple[QWidget, QVBoxLayout]:
+        widget = QWidget()
+        column = QVBoxLayout(widget)
+        column.setContentsMargins(0, 0, 6, 0)
+        column.setSpacing(6)
+        return widget, column
 
     def _set(self, key: str, value) -> None:
         self.settings.set(key, value)
@@ -111,66 +194,101 @@ class SettingsDialog(QDialog):
 
     # -- general --------------------------------------------------------------
     def _build_general(self) -> QWidget:
-        page = QWidget()
-        form = QFormLayout(page)
+        page, column = self._column()
         self.language = QComboBox()
+        self.language.setMinimumWidth(180)
         for code, name in self.app.translator.available_languages().items():
             self.language.addItem(name, code)
         self.language.setCurrentIndex(max(0, self.language.findData(self.app.translator.language)))
         self.language.currentIndexChanged.connect(
             lambda _i: self._set("general.language", self.language.currentData())
         )
-        form.addRow(self._label("settings.language"), self.language)
-        form.addRow("", self._label("settings.language.restart_not_needed"))
+        column.addWidget(self._row("language", "settings.language", "settings.language.desc", self.language))
 
-        for key, label_key in (
-            ("general.start_minimized", "settings.start_minimized"),
-            ("general.tester_mode", "settings.tester_mode"),
-        ):
-            box = QCheckBox()
-            self.rt.bind(box.setText, label_key)
-            box.setChecked(bool(self.settings.get(key)))
-            box.toggled.connect(lambda checked, k=key: self._set(k, checked))
-            form.addRow(box)
+        self.theme_combo = QComboBox()
+        self.theme_combo.setMinimumWidth(180)
+        for mode in ("system", "light", "dark"):
+            self.theme_combo.addItem("", mode)
+        self._retranslate_theme_combo()
+        self.rt.on_change(self._retranslate_theme_combo)
+        self.theme_combo.setCurrentIndex(max(0, self.theme_combo.findData(self.settings.get("general.theme"))))
+        self.theme_combo.currentIndexChanged.connect(lambda _i: self._set("general.theme", self.theme_combo.currentData()))
+        column.addWidget(self._row("sparkle", "settings.theme", "settings.theme.desc", self.theme_combo))
 
-        note = self._label("settings.privacy_note")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: palette(mid); margin-top: 16px;")
-        form.addRow(note)
+        column.addWidget(
+            self._row("image", "settings.preview", "settings.preview.desc", self._toggle("capture.show_preview"))
+        )
+        column.addWidget(
+            self._row(
+                "window", "settings.start_minimized", "settings.start_minimized.desc", self._toggle("general.start_minimized")
+            )
+        )
+        column.addWidget(
+            self._row("check", "settings.tester_mode", "settings.tester_mode.desc", self._toggle("general.tester_mode"))
+        )
+        column.addSpacing(10)
+        privacy = QHBoxLayout()
+        privacy.addWidget(IconBadge("shield", 16, token="success"))
+        note = label(role="caption", wrap=True)
+        self.rt.bind(note.setText, "settings.privacy_note")
+        privacy.addWidget(note, 1)
+        column.addLayout(privacy)
+        column.addStretch(1)
         return page
+
+    def _retranslate_theme_combo(self) -> None:
+        for i in range(self.theme_combo.count()):
+            self.theme_combo.setItemText(i, self.t(f"settings.theme.{self.theme_combo.itemData(i)}"))
 
     # -- capture --------------------------------------------------------------
     def _build_capture(self) -> QWidget:
-        page = QWidget()
-        form = QFormLayout(page)
+        page, column = self._column()
 
         self.image_format = QComboBox()
         for fmt in IMAGE_FORMATS:
             self.image_format.addItem(fmt.upper(), fmt)
         self.image_format.setCurrentIndex(max(0, self.image_format.findData(self.settings.get("capture.image_format"))))
         self.image_format.currentIndexChanged.connect(self._on_format)
-        form.addRow(self._label("settings.image_format"), self.image_format)
+        column.addWidget(self._row("image", "settings.image_format", "settings.image_format.desc", self.image_format))
 
         self.jpeg_quality = QSpinBox()
         self.jpeg_quality.setRange(30, 100)
+        self.jpeg_quality.setSuffix(" %")
         self.jpeg_quality.setValue(self.settings.get("capture.jpeg_quality"))
         self.jpeg_quality.valueChanged.connect(lambda v: self._set("capture.jpeg_quality", v))
-        form.addRow(self._label("settings.jpeg_quality"), self.jpeg_quality)
+        column.addWidget(self._row(None, "settings.jpeg_quality", None, self.jpeg_quality))
 
         self.delay = QSpinBox()
         self.delay.setRange(1, 60)
         self.delay.setValue(self.settings.get("capture.default_delay_seconds"))
         self.rt.bind(self.delay.setSuffix, "settings.seconds_suffix")
         self.delay.valueChanged.connect(lambda v: self._set("capture.default_delay_seconds", v))
-        form.addRow(self._label("settings.default_delay"), self.delay)
+        column.addWidget(self._row("timer", "settings.default_delay", "settings.default_delay.desc", self.delay))
 
+        name_card = Card(padding=16, spacing=8)
+        head = SettingRow("edit")
+        head.setProperty("card", False)
+        head.layout().setContentsMargins(0, 0, 0, 0)
+        self.rt.bind(head.title.setText, "settings.filename_template")
+        self.rt.bind(head.description.setText, "settings.filename_template.desc")
+        name_card.body.addWidget(head)
         self.template = QLineEdit(self.settings.get("capture.filename_template"))
         self.template.textChanged.connect(self._on_template)
-        form.addRow(self._label("settings.filename_template"), self.template)
-        form.addRow("", self._label("settings.filename_tokens", tokens=FILENAME_TOKENS))
-        self.preview = QLabel()
-        form.addRow("", self.preview)
+        name_card.body.addWidget(self.template)
+        tokens = label(role="caption", wrap=True)
+        self.rt.bind(tokens.setText, "settings.filename_tokens", tokens=FILENAME_TOKENS)
+        name_card.body.addWidget(tokens)
+        self.preview = label(role="secondary")
+        name_card.body.addWidget(self.preview)
+        column.addWidget(name_card)
 
+        folder_card = Card(padding=16, spacing=8)
+        head = SettingRow("folder")
+        head.setProperty("card", False)
+        head.layout().setContentsMargins(0, 0, 0, 0)
+        self.rt.bind(head.title.setText, "settings.output_dir")
+        self.rt.bind(head.description.setText, "settings.output_dir.desc")
+        folder_card.body.addWidget(head)
         row = QHBoxLayout()
         self.output_dir = QLineEdit(self.settings.get("capture.output_dir"))
         self.rt.bind(
@@ -180,9 +298,11 @@ class SettingsDialog(QDialog):
         browse = QPushButton()
         self.rt.bind(browse.setText, "settings.browse")
         browse.clicked.connect(self._browse)
-        row.addWidget(self.output_dir)
+        row.addWidget(self.output_dir, 1)
         row.addWidget(browse)
-        form.addRow(self._label("settings.output_dir"), row)
+        folder_card.body.addLayout(row)
+        column.addWidget(folder_card)
+        column.addStretch(1)
 
         self._on_format()
         self._update_preview()
@@ -218,8 +338,8 @@ class SettingsDialog(QDialog):
 
     # -- after capture --------------------------------------------------------
     def _build_after_capture(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        page = Card(padding=16, spacing=10)
+        layout = page.body
         hint = self._label("settings.after_capture.hint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -241,11 +361,12 @@ class SettingsDialog(QDialog):
         self.actions_list.model().rowsMoved.connect(lambda *_: self._save_actions())
         layout.addWidget(self.actions_list)
 
-        stop = QCheckBox()
-        self.rt.bind(stop.setText, "settings.stop_on_error")
-        stop.setChecked(bool(self.settings.get("workflow.stop_on_error")))
-        stop.toggled.connect(lambda checked: self._set("workflow.stop_on_error", checked))
-        layout.addWidget(stop)
+        stop_row = QHBoxLayout()
+        stop_label = label()
+        self.rt.bind(stop_label.setText, "settings.stop_on_error")
+        stop_row.addWidget(stop_label, 1)
+        stop_row.addWidget(self._toggle("workflow.stop_on_error"))
+        layout.addLayout(stop_row)
         return page
 
     def _retranslate_actions(self) -> None:
@@ -268,8 +389,8 @@ class SettingsDialog(QDialog):
 
     # -- hotkeys --------------------------------------------------------------
     def _build_hotkeys(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        page = Card(padding=16, spacing=10)
+        layout = page.body
         self.hotkey_search = QLineEdit()
         self.hotkey_search.setClearButtonEnabled(True)
         self.rt.bind(self.hotkey_search.setPlaceholderText, "hotkeys.search")

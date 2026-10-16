@@ -11,22 +11,23 @@ from __future__ import annotations
 
 import logging
 import sys
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 
 from screenpilot.app import ScreenPilotApp
-from screenpilot.capture.geometry import Rect
+from screenpilot.capture.geometry import Point, Rect
 from screenpilot.capture.image import CaptureResult
 from screenpilot.core.errors import ScreenPilotError
 from screenpilot.core.events import Event
 from screenpilot.hotkeys import RegistrationStatus
 from screenpilot.ui.countdown import CountdownOverlay
 from screenpilot.ui.qt_helpers import EventBridge, Retranslator
-from screenpilot.ui.region_selector import RegionSelector
+from screenpilot.ui.region_selector import ACTION_COPY, ACTION_PIN, ACTION_SAVE_AS, RegionSelector, physical_to_logical
 from screenpilot.workflow import StepStatus
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class AppController(QObject):
     hotkey_pressed = Signal(int)
     notify = Signal(str, str, bool)  # title, body, is_error
     hotkeys_changed = Signal()
+    captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
         super().__init__()
@@ -52,7 +54,10 @@ class AppController(QObject):
         self._windows: dict[str, QWidget] = {}
         self._countdown: CountdownOverlay | None = None
         self._listener = None
+        self._preview: QWidget | None = None
+        self.pins: list[QWidget] = []
         self.hotkey_pressed.connect(self._on_hotkey)
+        self.captured.connect(self._on_captured)
 
         self.actions: dict[str, Callable[[], None]] = {
             "capture.region": self.capture_region,
@@ -127,12 +132,27 @@ class AppController(QObject):
             return
         self.selector.start(frozen, monitors, windows)
 
-    def _on_region_selected(self, rect: Rect | None) -> None:
+    def _on_region_selected(self, outcome: tuple[Rect, str] | None) -> None:
         frozen = self.selector.frozen
         self.selector.frozen = None
-        if rect is None or frozen is None:
+        if outcome is None or frozen is None:
             return
-        self._guard(lambda: self.app.capture.region_from_frozen(frozen, rect))
+        rect, action = outcome
+        try:
+            result = self.app.capture.region_from_frozen(frozen, rect)
+        except ScreenPilotError as exc:
+            self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
+            return
+        if action == ACTION_COPY:
+            self.process(result, steps=[{"id": "copy_image"}])
+        elif action == ACTION_SAVE_AS:
+            path = self.save_result_as(result)
+            if path is not None:
+                self.process(result, steps=[{"id": "copy_image"}], saved_path=path)
+        elif action == ACTION_PIN:
+            self.pin(result)
+        else:
+            self.process(result)
 
     def capture_window(self) -> None:
         self._guard(self.app.capture.capture_window)
@@ -163,32 +183,107 @@ class AppController(QObject):
         log.info("Delayed capture cancelled")
 
     # -- post capture ---------------------------------------------------------
-    def process(self, result: CaptureResult) -> None:
-        """Run the configured action chain in the background."""
-        future = self._worker.submit(self.app.run_after_capture, result)
-        future.add_done_callback(lambda f: self._workflow_done(f, result))
+    def process(self, result: CaptureResult, steps: list[dict] | None = None, *, saved_path: Path | None = None) -> None:
+        """Run the configured (or given) action chain in the background."""
+        future = self._worker.submit(self.app.run_after_capture, result, steps)
+        future.add_done_callback(lambda f: self._workflow_done(f, result, saved_path))
 
-    def _workflow_done(self, future, result: CaptureResult) -> None:  # worker thread
+    def _workflow_done(self, future, result: CaptureResult, saved_path: Path | None) -> None:  # worker thread
         try:
             steps, ctx = future.result()
         except Exception as exc:  # noqa: BLE001
             log.exception("Workflow crashed")
-            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            self.captured.emit(result, None, str(exc))
             return
         failed = [s for s in steps if s.status is StepStatus.FAILED]
-        size = dict(width=result.image.width, height=result.image.height)
+        error = ""
         if failed:
             first = failed[0]
-            body = self.t(
+            error = self.t(
                 "notify.workflow_failed", action=self.t(f"workflow.action.{first.action_id}"), reason=first.message
             )
-            self.notify.emit(self.t("notify.failed.title"), body, True)
-        elif ctx.saved_path is not None:
+        self.captured.emit(result, ctx.saved_path or saved_path, error)
+
+    def _on_captured(self, result: CaptureResult, saved_path: Path | None, error: str) -> None:  # GUI thread
+        size = dict(width=result.image.width, height=result.image.height)
+        if error:
+            self.notify.emit(self.t("notify.failed.title"), error, True)
+            return
+        if self.app.settings.get("capture.show_preview"):
+            self.show_preview(result, saved_path)
+        elif saved_path is not None:
             self.notify.emit(
-                self.t("notify.captured.title"), self.t("notify.captured.body", name=Path(ctx.saved_path).name, **size), False
+                self.t("notify.captured.title"), self.t("notify.captured.body", name=Path(saved_path).name, **size), False
             )
         else:
             self.notify.emit(self.t("notify.copied.title"), self.t("notify.copied.body", **size), False)
+
+    # -- preview, pin, save ---------------------------------------------------
+    def show_preview(self, result: CaptureResult, saved_path: Path | None) -> QWidget:
+        from screenpilot.ui.preview import QuickPreview
+
+        if self._preview is not None:
+            try:
+                self._preview.close()
+            except RuntimeError:
+                pass
+        preview = QuickPreview(
+            result,
+            saved_path,
+            self.app.translator,
+            copy=lambda: self.copy_result(result),
+            save_as=lambda: self.save_result_as(result),
+            reveal=self.app.shell.reveal,
+            temp_file=lambda: self.temp_file(result),
+        )
+        preview.pin_requested.connect(self.pin)
+        preview.closed.connect(lambda: setattr(self, "_preview", None) if self._preview is preview else None)
+        self._preview = preview
+        preview.show_animated()
+        return preview
+
+    def copy_result(self, result: CaptureResult) -> None:
+        try:
+            self.app.clipboard.set_image(result.image)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Copy failed")
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+
+    def save_result_as(self, result: CaptureResult) -> Path | None:
+        suggested = self.app.output_dir / "capture.png"
+        path, _ = QFileDialog.getSaveFileName(
+            None, self.t("workflow.action.save_as"), str(suggested), "PNG (*.png);;JPEG (*.jpg);;BMP (*.bmp)"
+        )
+        if not path:
+            return None
+        target = Path(path)
+        try:
+            return result.image.save(target, image_format=target.suffix.lstrip(".") or "png")
+        except OSError as exc:
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            return None
+
+    def temp_file(self, result: CaptureResult) -> Path | None:
+        """A file for drag-and-drop when the capture was only copied."""
+        folder = self.app.paths.data_dir / "drag"
+        try:
+            for old in folder.glob("*.png"):
+                old.unlink(missing_ok=True)
+            return result.image.save(folder / f"capture-{uuid.uuid4().hex[:8]}.png")
+        except OSError:
+            log.exception("Could not create drag file")
+            return None
+
+    def pin(self, result: CaptureResult) -> QWidget:
+        from screenpilot.ui.preview import PinWindow
+        from screenpilot.ui.qt_helpers import qimage_from_captured
+
+        window = PinWindow(qimage_from_captured(result.image), self.app.translator, copy=lambda: self.copy_result(result))
+        self.pins.append(window)
+        window.destroyed.connect(lambda *_: self.pins.remove(window) if window in self.pins else None)
+        window.move(physical_to_logical(Point(result.region.x, result.region.y), self.app.capture.monitors()))
+        window.show()
+        return window
 
     def _on_event(self, event: Event) -> None:
         if event.name == "editor.open_requested":
@@ -208,6 +303,11 @@ class AppController(QObject):
         window.raise_()
         window.activateWindow()
         return window
+
+    def show_hub(self) -> QWidget:
+        from screenpilot.ui.hub import CaptureHub
+
+        return self._show_single("hub", lambda: CaptureHub(self))
 
     def show_settings(self) -> QWidget:
         from screenpilot.ui.settings_dialog import SettingsDialog

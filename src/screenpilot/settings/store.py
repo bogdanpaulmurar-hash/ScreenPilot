@@ -31,13 +31,15 @@ DEFAULTS: dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
     "general": {
         "language": "en",
-        "start_minimized": True,
+        "start_minimized": False,
         "first_run_completed": False,
         "tester_mode": False,
+        "theme": "system",
     },
     "capture": {
         "default_delay_seconds": 3,
         "include_cursor": False,
+        "show_preview": True,
         "play_sound": False,
         "image_format": "png",
         "jpeg_quality": 90,

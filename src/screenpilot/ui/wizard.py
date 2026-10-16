@@ -94,3 +94,4 @@ class FirstRunWizard(QWizard):
             self.app.settings.save()
         except OSError:
             pass
+        self.controller.show_hub()

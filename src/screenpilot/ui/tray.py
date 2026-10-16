@@ -29,6 +29,12 @@ class TrayIcon(QSystemTrayIcon):
 
         menu = QMenu()
         self._menu = menu
+        open_hub = QAction(menu)
+        rt.bind(open_hub.setText, "tray.menu.open_hub")
+        open_hub.triggered.connect(controller.show_hub)
+        menu.addAction(open_hub)
+        menu.setDefaultAction(open_hub)
+        menu.addSeparator()
         for action_id in CAPTURE_ACTIONS:
             action = QAction(menu)
             rt.bind(action.setText, f"action.{action_id}")
@@ -116,7 +122,7 @@ class TrayIcon(QSystemTrayIcon):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:  # single left click
             self.controller.trigger("capture.region", from_menu=True)
         elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            self.controller.show_history()
+            self.controller.show_hub()
 
     def _on_notify(self, title: str, body: str, is_error: bool) -> None:
         icon = QSystemTrayIcon.MessageIcon.Warning if is_error else QSystemTrayIcon.MessageIcon.Information

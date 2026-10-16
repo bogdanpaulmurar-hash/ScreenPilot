@@ -43,6 +43,7 @@ class HistoryWindow(QWidget):
         self.rt = rt = Retranslator(self.app.translator)
         self.destroyed.connect(lambda *_: rt.dispose())
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setProperty("page", True)
         self.setWindowIcon(app_icon())
         self.resize(820, 560)
         rt.bind(self.setWindowTitle, "history.title")

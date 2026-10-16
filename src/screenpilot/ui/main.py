@@ -30,6 +30,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     app = create_app()
 
+    from screenpilot.ui.theme import ThemeManager
+    from screenpilot.ui.widgets import set_theme_manager
+
+    themes = ThemeManager(app.settings.get("general.theme"))
+    set_theme_manager(themes)
+    themes.apply()
+    app.settings.add_listener(lambda key, value: themes.set_mode(value) if key == "general.theme" else None)
+
     lock = QLockFile(str(app.paths.data_dir / "screenpilot.lock"))
     lock.setStaleLockTime(0)
     if not lock.tryLock(100):
@@ -44,6 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if not app.settings.get("general.first_run_completed"):
         controller.show_wizard()
+    elif not app.settings.get("general.start_minimized"):
+        controller.show_hub()
 
     log.info("Desktop UI ready")
     return qt_app.exec()
