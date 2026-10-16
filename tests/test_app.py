@@ -36,6 +36,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual([s.action_id for s in steps], ["save", "copy_image"])
         self.assertTrue(ctx.saved_path.is_relative_to(self.paths.captures_dir))
         self.assertIs(app.clipboard.image, result.image)
+        self.assertEqual(app.history.entries()[0].path, str(ctx.saved_path))
 
     def test_language_setting_switches_translator_live(self):
         app = self.make()

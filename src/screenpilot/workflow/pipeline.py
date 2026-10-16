@@ -75,5 +75,5 @@ class Workflow:
                 results.append(StepResult(action_id, StepStatus.FAILED, str(exc)))
                 if self.stop_on_error:
                     break
-        ctx.bus.publish(EVENT_WORKFLOW_FINISHED, results=results, path=ctx.saved_path)
+        ctx.bus.publish(EVENT_WORKFLOW_FINISHED, results=results, path=ctx.saved_path, result=ctx.result)
         return results

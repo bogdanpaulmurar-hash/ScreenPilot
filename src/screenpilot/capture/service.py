@@ -98,6 +98,32 @@ class CaptureService:
         desktop = self.desktop()
         return self._grab(MODE_ALL_MONITORS, desktop.bounds, CaptureRequest(MODE_ALL_MONITORS))
 
+    # -- freeze-then-select (used by the interactive region selector) --------
+    def freeze(self) -> CaptureResult:
+        """Grab the whole desktop *without* publishing it as a capture.
+
+        The selector shows this frozen image, so the user selects exactly what
+        was on screen when they pressed the hotkey (open menus, tooltips...).
+        """
+        desktop = self.desktop()
+        with self._lock:
+            image = self.backend.grab(desktop.bounds)
+        return CaptureResult(image=image, mode="frozen", region=desktop.bounds, metadata={"backend": self.backend.name})
+
+    def region_from_frozen(self, frozen: CaptureResult, rect: Rect, *, mode: str = MODE_REGION, **metadata: Any) -> CaptureResult:
+        """Crop a desktop rectangle out of a frozen image and publish it as a capture."""
+        area = rect.intersect(frozen.region)
+        if area.is_empty:
+            raise CaptureError(f"Selection {rect} is outside the captured desktop")
+        image = frozen.image.crop(area.translate(-frozen.region.x, -frozen.region.y))
+        metadata.setdefault("backend", frozen.metadata.get("backend", self.backend.name))
+        metadata["frozen"] = True
+        result = CaptureResult(image=image, mode=mode, region=area, metadata=metadata)
+        self.last_request = CaptureRequest(MODE_REGION, {"rect": str(area)})
+        log.info("Captured %s %dx%d at %s from frozen desktop", mode, area.width, area.height, area)
+        self.bus.publish(EVENT_COMPLETED, result=result)
+        return result
+
     def capture_window(self, window: WindowInfo | None = None) -> CaptureResult:
         """Capture a window as currently visible on screen (foreground window by default)."""
         window = window or self.backend.foreground_window()

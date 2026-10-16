@@ -152,7 +152,18 @@ if shcore is not None:
 
 
 def enable_dpi_awareness() -> str:
-    """Opt into the best available DPI awareness. Safe to call more than once."""
+    """Opt into the best available DPI awareness. Safe to call more than once.
+
+    Qt 6 already makes the process per-monitor-v2 aware; in that case nothing
+    is changed (changing awareness after windows exist is not allowed).
+    """
+    try:
+        get_ctx = _sig(user32.GetThreadDpiAwarenessContext, ctypes.c_void_p)
+        get_awareness = _sig(user32.GetAwarenessFromDpiAwarenessContext, ctypes.c_int, ctypes.c_void_p)
+        if get_awareness(get_ctx()) == 2:  # DPI_AWARENESS_PER_MONITOR_AWARE
+            return "per-monitor (already set)"
+    except AttributeError:  # older than Windows 10 1607
+        pass
     try:
         fn = _sig(user32.SetProcessDpiAwarenessContext, wintypes.BOOL, ctypes.c_void_p)
         if fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2):

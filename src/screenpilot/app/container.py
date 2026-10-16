@@ -23,6 +23,7 @@ from screenpilot.core.events import EventBus
 from screenpilot.core.logging_setup import close_logging, configure_logging
 from screenpilot.core.paths import AppPaths, resolve_paths
 from screenpilot.core.services import ServiceRegistry
+from screenpilot.history import CaptureHistory
 from screenpilot.hotkeys import HotkeyManager
 from screenpilot.i18n import Translator
 from screenpilot.platform import Clipboard, DefaultShell, Shell, default_clipboard
@@ -43,6 +44,7 @@ class ScreenPilotApp:
     actions: ActionRegistry
     clipboard: Clipboard
     shell: Shell
+    history: CaptureHistory
     services: ServiceRegistry = field(default_factory=ServiceRegistry)
 
     @property
@@ -117,7 +119,9 @@ def create_app(
         actions=ActionRegistry(),
         clipboard=clipboard or default_clipboard(),
         shell=shell or DefaultShell(),
+        history=CaptureHistory(paths.data_dir).load(),
     )
+    app.history.attach(bus)
     for key, instance in (
         (Settings, settings),
         (Translator, translator),
@@ -125,6 +129,7 @@ def create_app(
         (CaptureService, app.capture),
         (HotkeyManager, hotkeys),
         (ActionRegistry, app.actions),
+        (CaptureHistory, app.history),
     ):
         app.services.register_instance(key, instance)
     return app
