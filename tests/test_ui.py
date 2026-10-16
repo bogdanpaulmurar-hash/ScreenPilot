@@ -4,6 +4,8 @@ Set SCREENPILOT_UI_SHOTS=<dir> to save screenshots of every window (CI uploads
 them so the UI can be reviewed without a Windows machine).
 """
 
+from __future__ import annotations
+
 import os
 import tempfile
 import time
