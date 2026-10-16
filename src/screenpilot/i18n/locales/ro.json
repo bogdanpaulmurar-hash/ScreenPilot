@@ -90,7 +90,7 @@
   "settings.tab.after_capture": "După captură",
   "settings.tab.hotkeys": "Taste rapide",
   "settings.start_minimized": "Pornește în zona de notificare",
-  "settings.tester_mode": "Mod tester (arată noutățile și ce trebuie verificat)",
+  "settings.tester_mode": "Mod tester",
   "settings.privacy_note": "ScreenPilot nu trimite niciodată date prin rețea. Capturile rămân pe acest calculator.",
   "settings.image_format": "Format imagine",
   "settings.jpeg_quality": "Calitate JPEG",
@@ -209,5 +209,13 @@
   "settings.default_delay.desc": "Folosită de tasta rapidă pentru captură cu întârziere",
   "settings.filename_template.desc": "Numele dat capturilor salvate",
   "settings.output_dir.desc": "Unde se salvează capturile",
-  "selector.action.capture": "Capturează  (Enter)"
+  "selector.action.capture": "Capturează  (Enter)",
+  "settings.edge_bar": "Bară de captură în partea de sus a ecranului",
+  "settings.edge_bar.desc": "Ascunsă la marginea de sus; du mouse-ul acolo ca să deschizi meniul de captură",
+  "edgebar.handle": "ScreenPilot · du mouse-ul aici pentru captură",
+  "edgebar.delay": "Zonă în {seconds} s",
+  "edgebar.hub": "Deschide ScreenPilot",
+  "edgebar.history": "Istoric capturi",
+  "edgebar.video": "Înregistrare ecran (în curând)",
+  "edgebar.hide": "Ascunde bara de captură (o reactivezi din Setări)"
 }

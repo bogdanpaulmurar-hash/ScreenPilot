@@ -286,6 +286,44 @@ class HubTests(UiTestCase):
         shot(hub, "09_hub_light_recent_ro")
 
 
+class EdgeBarTests(UiTestCase):
+    def test_edge_bar_expands_hides_during_capture_and_returns(self):
+        from screenpilot.ui.edge_bar import HANDLE, EdgeBar
+
+        bar = EdgeBar(self.controller)
+        self.controller.edge_bar = bar
+        bar.start()
+        QTest.qWaitForWindowExposed(bar)
+        self.assertEqual(bar.height(), HANDLE.height())
+        self.assertEqual(bar.y(), QGuiApplication.primaryScreen().geometry().y())
+        shot(bar, "17_edge_bar_collapsed")
+        bar.expand()
+        self.assertTrue(wait_until(lambda: bar.height() > 40))
+        QTest.qWait(250)
+        shot(bar, "18_edge_bar_expanded")
+        self.assertFalse(bar.buttons["video"].isEnabled())
+        QTest.mouseClick(bar.buttons["capture.region"], Qt.MouseButton.LeftButton)
+        self.assertFalse(bar.isVisible())  # never in the capture
+        self.assertTrue(wait_until(lambda: self.controller.selector.active))
+        QTest.keyClick(self.controller.selector.overlays[0], Qt.Key.Key_Escape)
+        self.assertTrue(wait_until(lambda: bar.isVisible(), timeout=3))
+        self.app.settings.set("general.edge_bar", False)
+        self.assertFalse(bar.isVisible())
+        self.app.settings.set("general.edge_bar", True)
+        self.assertTrue(bar.isVisible())
+
+    def test_hotkey_capture_hides_bar_first(self):
+        from screenpilot.ui.edge_bar import EdgeBar
+
+        bar = EdgeBar(self.controller)
+        self.controller.edge_bar = bar
+        bar.start()
+        self.controller.trigger("capture.window")
+        self.assertFalse(bar.isVisible())
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertTrue(wait_until(lambda: bar.isVisible(), timeout=3))
+
+
 class DarkThemeTests(UiTestCase):
     theme_mode = "dark"
 
@@ -305,6 +343,15 @@ class DarkThemeTests(UiTestCase):
         self.select(overlay, QPoint(80, 80), QPoint(380, 260))
         shot(overlay, "12_selector_dark_theme")
         QTest.keyClick(overlay, Qt.Key.Key_Escape)
+
+        from screenpilot.ui.edge_bar import EdgeBar
+
+        bar = EdgeBar(self.controller)
+        self.controller.edge_bar = bar
+        bar.start()
+        bar.expand()
+        QTest.qWait(250)
+        shot(bar, "19_edge_bar_dark")
 
 
 class WindowsTests(UiTestCase):

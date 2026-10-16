@@ -48,6 +48,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     controller = AppController(app)
     tray = TrayIcon(controller)
     tray.show()
+
+    from screenpilot.ui.edge_bar import EdgeBar
+
+    edge_bar = EdgeBar(controller)
+    controller.edge_bar = edge_bar
+    edge_bar.start()
     qt_app.aboutToQuit.connect(lambda: lock.unlock())
 
     if not app.settings.get("general.first_run_completed"):

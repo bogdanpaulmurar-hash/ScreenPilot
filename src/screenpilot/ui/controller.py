@@ -33,6 +33,7 @@ from screenpilot.workflow import StepStatus
 log = logging.getLogger(__name__)
 
 MENU_SETTLE_MS = 250  # let the tray menu disappear before grabbing the screen
+CHROME_SETTLE_MS = 150  # let our own floating bar disappear before grabbing
 
 
 class AppController(QObject):
@@ -56,6 +57,7 @@ class AppController(QObject):
         self._listener = None
         self._preview: QWidget | None = None
         self.pins: list[QWidget] = []
+        self.edge_bar: QWidget | None = None
         self.hotkey_pressed.connect(self._on_hotkey)
         self.captured.connect(self._on_captured)
 
@@ -104,10 +106,25 @@ class AppController(QObject):
         if handler is None:
             log.warning("No handler for action %s", action)
             return
-        if from_menu and action.startswith("capture."):
-            QTimer.singleShot(MENU_SETTLE_MS, handler)
-        else:
-            handler()
+        if action.startswith("capture."):
+            hidden = self.hide_chrome()
+            if from_menu or hidden:
+                QTimer.singleShot(MENU_SETTLE_MS if from_menu else CHROME_SETTLE_MS, handler)
+                return
+        handler()
+
+    @property
+    def busy(self) -> bool:
+        """A capture flow is in progress (selector open or countdown running)."""
+        return self.selector.active or self._countdown is not None
+
+    def hide_chrome(self) -> bool:
+        """Hide ScreenPilot's own floating UI so it never appears in a capture."""
+        bar = self.edge_bar
+        if bar is not None and bar.isVisible():
+            bar.suspend()
+            return True
+        return False
 
     # -- capture flows --------------------------------------------------------
     def _guard(self, fn: Callable[[], CaptureResult | None]) -> None:
@@ -335,8 +352,11 @@ class AppController(QObject):
     # -- lifecycle ------------------------------------------------------------
     def shutdown(self) -> None:
         log.info("Shutting down UI")
-        for window in list(self._windows.values()):
+        for window in list(self._windows.values()) + list(self.pins):
             window.close()
+        if self.edge_bar is not None:
+            self.edge_bar.close()
+            self.edge_bar = None
         if self._listener is not None:
             self._listener.stop()
         self._worker.shutdown(wait=True)

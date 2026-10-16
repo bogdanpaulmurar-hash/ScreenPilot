@@ -214,6 +214,7 @@ class CaptureHub(QWidget):
     def start_capture(self, action: str) -> None:
         """Hide the hub so it is not in the picture, then capture (optionally delayed)."""
         self.hide()
+        self.controller.hide_chrome()
 
         def go() -> None:
             handler = self.controller.actions[action]
@@ -247,8 +248,11 @@ class CaptureHub(QWidget):
     def _refresh_recent(self) -> None:
         while self.recent_row.count():
             item = self.recent_row.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
         entries = self.app.history.entries()[:RECENT_COUNT]
         self.recent_empty.setVisible(not entries)
         for entry in entries:

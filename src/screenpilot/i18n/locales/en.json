@@ -90,7 +90,7 @@
   "settings.tab.after_capture": "After capture",
   "settings.tab.hotkeys": "Hotkeys",
   "settings.start_minimized": "Start in the system tray",
-  "settings.tester_mode": "Tester mode (show what's new and what to verify)",
+  "settings.tester_mode": "Tester mode",
   "settings.privacy_note": "ScreenPilot never sends data over the network. Captures stay on this computer.",
   "settings.image_format": "Image format",
   "settings.jpeg_quality": "JPEG quality",
@@ -209,5 +209,13 @@
   "settings.default_delay.desc": "Used by the delayed-capture shortcut",
   "settings.filename_template.desc": "Name given to saved captures",
   "settings.output_dir.desc": "Where captures are saved",
-  "selector.action.capture": "Capture  (Enter)"
+  "selector.action.capture": "Capture  (Enter)",
+  "settings.edge_bar": "Capture bar at the top of the screen",
+  "settings.edge_bar.desc": "Hidden at the top edge; point at it to open the capture menu",
+  "edgebar.handle": "ScreenPilot · point here to capture",
+  "edgebar.delay": "Region in {seconds} s",
+  "edgebar.hub": "Open ScreenPilot",
+  "edgebar.history": "Capture history",
+  "edgebar.video": "Screen recording (coming soon)",
+  "edgebar.hide": "Hide the capture bar (turn it back on in Settings)"
 }

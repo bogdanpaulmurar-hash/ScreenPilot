@@ -35,6 +35,8 @@ DEFAULTS: dict[str, Any] = {
         "first_run_completed": False,
         "tester_mode": False,
         "theme": "system",
+        "edge_bar": True,
+        "edge_bar_position": 0.5,
     },
     "capture": {
         "default_delay_seconds": 3,

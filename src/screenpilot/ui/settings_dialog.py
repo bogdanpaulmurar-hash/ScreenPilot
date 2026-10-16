@@ -213,10 +213,13 @@ class SettingsDialog(QDialog):
         self.rt.on_change(self._retranslate_theme_combo)
         self.theme_combo.setCurrentIndex(max(0, self.theme_combo.findData(self.settings.get("general.theme"))))
         self.theme_combo.currentIndexChanged.connect(lambda _i: self._set("general.theme", self.theme_combo.currentData()))
-        column.addWidget(self._row("sparkle", "settings.theme", "settings.theme.desc", self.theme_combo))
+        column.addWidget(self._row("theme", "settings.theme", "settings.theme.desc", self.theme_combo))
 
         column.addWidget(
             self._row("image", "settings.preview", "settings.preview.desc", self._toggle("capture.show_preview"))
+        )
+        column.addWidget(
+            self._row("chevron_down", "settings.edge_bar", "settings.edge_bar.desc", self._toggle("general.edge_bar"))
         )
         column.addWidget(
             self._row(
