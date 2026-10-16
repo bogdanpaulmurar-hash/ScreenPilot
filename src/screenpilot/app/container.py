@@ -119,9 +119,10 @@ def create_app(
         actions=ActionRegistry(),
         clipboard=clipboard or default_clipboard(),
         shell=shell or DefaultShell(),
-        history=CaptureHistory(paths.data_dir).load(),
+        history=CaptureHistory(paths.data_dir, limit=settings.get("history.limit")).load(),
     )
     app.history.attach(bus)
+    settings.add_listener(lambda key, value: app.history.set_limit(value) if key == "history.limit" else None)
     for key, instance in (
         (Settings, settings),
         (Translator, translator),

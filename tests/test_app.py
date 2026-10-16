@@ -38,6 +38,12 @@ class AppTests(unittest.TestCase):
         self.assertIs(app.clipboard.image, result.image)
         self.assertEqual(app.history.entries()[0].path, str(ctx.saved_path))
 
+    def test_history_limit_setting_is_live(self):
+        app = self.make()
+        self.assertEqual(app.history.limit, 100)
+        app.settings.set("history.limit", 20)
+        self.assertEqual(app.history.limit, 20)
+
     def test_language_setting_switches_translator_live(self):
         app = self.make()
         self.assertEqual(app.translator.t("settings.title"), "Settings")

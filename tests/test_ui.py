@@ -263,6 +263,47 @@ class ScrollingUiTests(UiTestCase):
         del win
 
 
+class StepEditorTests(UiTestCase):
+    def test_number_steps_on_a_window_capture(self):
+        overlay = self.open_selector()
+        erp = self.window.bounds
+        inside = QPoint(erp.x - self.screen_rect.x + 300, erp.y - self.screen_rect.y + 300)
+        QTest.mouseMove(overlay, inside)
+        self.assertTrue(wait_until(lambda: overlay.model.hover_rect() is not None))
+        overlay.model.cycle(+10)  # whole window
+        QTest.keyClick(overlay, Qt.Key.Key_N)
+        self.assertTrue(wait_until(lambda: any(k.startswith("steps-") for k in self.controller._windows)))
+        editor = next(w for k, w in self.controller._windows.items() if k.startswith("steps-"))
+        QTest.qWaitForWindowExposed(editor)
+        editor.resize(900, 640)
+        QApplication.processEvents()
+        canvas = editor.canvas
+
+        def click_image(x, y, button=Qt.MouseButton.LeftButton):
+            t = canvas._target()
+            scale = t.width() / canvas.image.width
+            pos = QPoint(round(t.left() + x * scale), round(t.top() + y * scale))
+            QTest.mouseClick(canvas, button, Qt.KeyboardModifier.NoModifier, pos)
+
+        # Customer field, Order date field (snapped to the detected element), then a free click.
+        click_image(300, 70)
+        click_image(300, 108)
+        canvas.snap = False
+        click_image(560, 625 - 176)
+        self.assertEqual(len(editor.doc.steps), 3)
+        self.assertIsNotNone(editor.doc.steps[0].frame)
+        self.assertEqual(editor.doc.steps[0].frame.height, 27)
+        self.assertIsNone(editor.doc.steps[2].frame)
+        shot(editor, "22_step_editor")
+        click_image(editor.doc.steps[1].point.x, editor.doc.steps[1].point.y, Qt.MouseButton.RightButton)
+        self.assertEqual(len(editor.doc.steps), 2)
+        editor.undo()
+        self.assertEqual(len(editor.doc.steps), 3)
+        editor.done()
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertEqual(self.captured[0][0].metadata["steps"], 3)
+
+
 class PreviewTests(UiTestCase):
     def test_quick_preview_after_capture(self):
         self.app.settings.set("capture.show_preview", True)

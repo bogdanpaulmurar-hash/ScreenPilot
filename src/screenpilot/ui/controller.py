@@ -34,6 +34,7 @@ from screenpilot.ui.region_selector import (
     ACTION_PIN,
     ACTION_SAVE_AS,
     ACTION_SCROLL,
+    ACTION_STEPS,
     RegionSelector,
     physical_to_logical,
 )
@@ -222,6 +223,8 @@ class AppController(QObject):
                 self.process(result, steps=[{"id": "copy_image"}], saved_path=path)
         elif action == ACTION_PIN:
             self.pin(result)
+        elif action == ACTION_STEPS:
+            self.open_steps(result)
         else:
             self.process(result)
 
@@ -367,6 +370,7 @@ class AppController(QObject):
         )
         preview.pin_requested.connect(self.pin)
         preview.more_requested.connect(lambda r: self.start_scrolling(r.region))
+        preview.steps_requested.connect(self.open_steps)
         preview.closed.connect(lambda: setattr(self, "_preview", None) if self._preview is preview else None)
         self._preview = preview
         preview.show_animated()
@@ -403,6 +407,24 @@ class AppController(QObject):
         except OSError:
             log.exception("Could not create drag file")
             return None
+
+    def open_steps(self, result: CaptureResult) -> QWidget:
+        """Step numbering on a capture; Done runs the usual after-capture actions."""
+        from screenpilot.ui.step_editor import StepEditor
+
+        editor = StepEditor(
+            result,
+            self.app.translator,
+            on_done=self.process,
+            copy=lambda image: self.copy_result(CaptureResult(image, result.mode, result.region)),
+            save_dir=self.app.output_dir,
+        )
+        self._windows[f"steps-{id(editor)}"] = editor
+        editor.destroyed.connect(lambda *_: self._windows.pop(f"steps-{id(editor)}", None))
+        editor.show()
+        editor.raise_()
+        editor.activateWindow()
+        return editor
 
     def pin(self, result: CaptureResult) -> QWidget:
         from screenpilot.ui.preview import PinWindow

@@ -174,6 +174,23 @@ class HistoryWindow(QWidget):
         if entry is not None:
             self.app.shell.reveal(Path(entry.path))
 
+    def _steps(self) -> None:
+        entry = self._current()
+        if entry is None:
+            return
+        from PIL import Image
+
+        from screenpilot.capture.geometry import Rect
+        from screenpilot.capture.image import CaptureResult
+
+        try:
+            with Image.open(entry.path) as img:
+                image = CapturedImage.from_pil(img)
+        except OSError as exc:
+            QMessageBox.warning(self, self.t("history.title"), str(exc))
+            return
+        self.controller.open_steps(CaptureResult(image, entry.mode, Rect(0, 0, image.width, image.height)))
+
     def _remove(self) -> None:
         entry = self._current()
         if entry is not None:
@@ -195,6 +212,7 @@ class HistoryWindow(QWidget):
             ("history.copy_image", self._copy_image),
             ("history.copy_path", self._copy_path),
             ("history.open_folder", self._reveal),
+            ("history.steps", self._steps),
             ("history.remove", self._remove),
         ):
             menu.addAction(self.t(key), slot)

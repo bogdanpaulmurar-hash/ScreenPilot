@@ -57,6 +57,16 @@ class Win32HotkeyListenerIntegrationTests(unittest.TestCase):
 
 
 @unittest.skipUnless(WINDOWS, "Windows only")
+class Win32ScrollerIntegrationTests(unittest.TestCase):
+    def test_scroller_basics(self):
+        from screenpilot.capture.win32_scroller import Win32Scroller
+
+        scroller = Win32Scroller()
+        self.assertFalse(scroller.stop_requested())
+        scroller.restore_cursor()
+
+
+@unittest.skipUnless(WINDOWS, "Windows only")
 class Win32ClipboardIntegrationTests(unittest.TestCase):
     def test_set_text_and_image(self):
         from screenpilot.capture import FakeBackend, Monitor, Rect

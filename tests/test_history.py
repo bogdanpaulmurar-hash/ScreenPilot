@@ -78,6 +78,14 @@ class HistoryTests(unittest.TestCase):
         paths[2].unlink()
         self.assertEqual([e.path for e in CaptureHistory(self.root / "data").load().entries()], [str(paths[1])])
 
+    def test_set_limit_trims_oldest(self):
+        history = CaptureHistory(self.root / "data", limit=5)
+        history.attach(self.bus)
+        paths = [self.run_workflow() for _ in range(4)]
+        history.set_limit(2)
+        self.assertEqual([e.path for e in history.entries()], [str(paths[3]), str(paths[2])])
+        self.assertEqual(CaptureHistory(self.root / "data").load().entries(), history.entries())
+
     def test_remove_clear_search_and_corrupt_file(self):
         history = CaptureHistory(self.root / "data")
         history.attach(self.bus)

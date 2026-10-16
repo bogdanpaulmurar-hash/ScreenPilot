@@ -22,7 +22,8 @@ from screenpilot.core.events import Event, EventBus, Subscription
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LIMIT = 200
+DEFAULT_LIMIT = 100
+MAX_LIMIT = 1000
 THUMB_SIZE = (240, 160)
 EVENT_HISTORY_CHANGED = "history.changed"
 
@@ -107,6 +108,18 @@ class CaptureHistory:
         self._save()
         self._notify()
         return entry
+
+    def set_limit(self, limit: int) -> None:
+        """Change how many captures are kept; extra (oldest) entries are dropped now."""
+        self.limit = max(1, min(MAX_LIMIT, int(limit)))
+        with self._lock:
+            dropped = self._entries[self.limit :]
+            self._entries = self._entries[: self.limit]
+        if dropped:
+            for old in dropped:
+                self._delete_thumbnail(old)
+            self._save()
+            self._notify()
 
     def remove(self, entry_id: str) -> None:
         """Forget an entry (the capture file itself is kept)."""

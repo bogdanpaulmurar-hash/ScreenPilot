@@ -100,6 +100,7 @@ class DragThumbnail(QLabel):
 class QuickPreview(QWidget):
     pin_requested = Signal(object)  # CaptureResult
     more_requested = Signal(object)  # CaptureResult: extend downwards with a scrolling capture
+    steps_requested = Signal(object)  # CaptureResult: open step numbering
     closed = Signal()
 
     def __init__(
@@ -173,6 +174,7 @@ class QuickPreview(QWidget):
             ("copy", "preview.copy", copy),
             ("save_as", "preview.save_as", lambda: self._after_save(save_as())),
             ("pin", "preview.pin", lambda: (self.pin_requested.emit(self.result), self.dismiss())),
+            ("steps", "preview.steps", lambda: (self.steps_requested.emit(self.result), self.dismiss())),
             ("folder", "preview.folder", lambda: self.saved_path and reveal(self.saved_path)),
             ("edit", "preview.edit", None),
         ):

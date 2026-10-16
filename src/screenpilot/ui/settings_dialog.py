@@ -218,6 +218,14 @@ class SettingsDialog(QDialog):
         column.addWidget(
             self._row("image", "settings.preview", "settings.preview.desc", self._toggle("capture.show_preview"))
         )
+        self.history_limit = QSpinBox()
+        self.history_limit.setRange(10, 1000)
+        self.history_limit.setSingleStep(10)
+        self.history_limit.setValue(self.settings.get("history.limit"))
+        self.history_limit.valueChanged.connect(lambda v: self._set("history.limit", v))
+        column.addWidget(
+            self._row("history", "settings.history_limit", "settings.history_limit.desc", self.history_limit)
+        )
         column.addWidget(
             self._row("chevron_down", "settings.edge_bar", "settings.edge_bar.desc", self._toggle("general.edge_bar"))
         )

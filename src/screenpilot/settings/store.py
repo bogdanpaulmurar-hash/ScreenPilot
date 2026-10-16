@@ -55,6 +55,9 @@ DEFAULTS: dict[str, Any] = {
         ],
         "stop_on_error": False,
     },
+    "history": {
+        "limit": 100,
+    },
     "privacy": {
         "telemetry": False,
         "allow_network": False,
