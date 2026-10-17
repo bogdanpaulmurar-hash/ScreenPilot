@@ -61,6 +61,10 @@ DEFAULTS: dict[str, Any] = {
         "dim": 47,
         "magnifier": True,
     },
+    "editor": {
+        "color": "#d13438",
+        "width": 4,
+    },
     "history": {
         "limit": 100,
     },

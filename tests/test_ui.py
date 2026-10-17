@@ -291,9 +291,7 @@ class CaptureModeTests(UiTestCase):
         shot(overlay, "24_mode_edit_selector")
         self.select(overlay, QPoint(60, 60), QPoint(300, 220))
         QTest.keyClick(overlay, Qt.Key.Key_Return)
-        self.assertTrue(
-            wait_until(lambda: any(k.startswith(("editor-", "steps-")) for k in self.controller._windows))
-        )
+        self.assertTrue(wait_until(lambda: any(k.startswith("editor-") for k in self.controller._windows)))
 
     def test_modes_settings_page(self):
         dialog = self.controller.show_settings()
@@ -307,6 +305,73 @@ class CaptureModeTests(UiTestCase):
         shot(dialog, "25_settings_modes")
         dialog._reset_mode_colors()
         dialog.close()
+
+
+class EditorTests(UiTestCase):
+    def _open(self):
+        result = self.app.capture.capture_window()
+        editor = self.controller.open_editor(result)
+        QTest.qWaitForWindowExposed(editor)
+        editor.resize(1000, 700)
+        QApplication.processEvents()
+        return editor
+
+    def _drag(self, canvas, a, b, modifier=Qt.KeyboardModifier.NoModifier):
+        t, s = canvas.target(), canvas.scale
+        pa = QPoint(round(t.left() + a[0] * s), round(t.top() + a[1] * s))
+        pb = QPoint(round(t.left() + b[0] * s), round(t.top() + b[1] * s))
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, modifier, pa)
+        QTest.mouseMove(canvas, pb)
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, modifier, pb)
+
+    def test_draw_tools_undo_select_move_and_done(self):
+        editor = self._open()
+        canvas = editor.canvas
+        editor.set_tool("arrow")
+        self._drag(canvas, (40, 300), (160, 90))
+        editor.set_tool("rect")
+        editor.set_color("#13a10e")
+        self._drag(canvas, (165, 50), (620, 90))
+        editor.set_tool("blur")
+        self._drag(canvas, (170, 210), (630, 240))
+        editor.set_tool("highlight")
+        self._drag(canvas, (10, 190), (150, 220))
+        editor.set_tool("step")
+        t, s = canvas.target(), canvas.scale
+        QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(round(t.left() + 300 * s), round(t.top() + 108 * s)))
+        kinds = [sh.kind for sh in editor.doc.shapes]
+        self.assertEqual(kinds[:4], ["arrow", "rect", "blur", "highlight"])
+        self.assertIn("step", kinds)
+        shot(editor, "26_editor")
+        editor.undo()
+        self.assertNotIn("step", [sh.kind for sh in editor.doc.shapes])
+        editor.redo()
+        # select the rectangle edge and move it
+        editor.set_tool("select")
+        QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(round(t.left() + 165 * s), round(t.top() + 70 * s)))
+        self.assertEqual(editor.doc.shapes[canvas.selected].kind, "rect")
+        before = editor.doc.shapes[canvas.selected].p1
+        self._drag(canvas, (165, 70), (185, 80))
+        self.assertEqual(editor.doc.shapes[canvas.selected].p1, Point(before.x + 20, before.y + 10))
+        editor.set_color("#0067c0")
+        self.assertEqual(editor.doc.shapes[canvas.selected].color, "#0067c0")
+        canvas.delete_selected()
+        editor.set_tool("crop")
+        self._drag(canvas, (0, 0), (400, 300))
+        self.assertIsNotNone(editor.doc.crop)
+        editor.done()
+        self.assertTrue(wait_until(lambda: self.captured))
+        result = self.captured[0][0]
+        self.assertTrue(result.metadata["edited"])
+        self.assertEqual(result.image.width, editor.doc.crop.width)
+
+    def test_dark_editor_screenshot_and_shortcuts(self):
+        editor = self._open()
+        QTest.keyClick(editor, Qt.Key.Key_R)
+        self.assertEqual(editor.canvas.tool, "rect")
+        QTest.keyClick(editor, Qt.Key.Key_B)
+        self.assertEqual(editor.canvas.tool, "blur")
+        editor.close()
 
 
 class StepEditorTests(UiTestCase):

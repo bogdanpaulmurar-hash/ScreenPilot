@@ -93,7 +93,7 @@ class AppController(QObject):
             "capture.copy": lambda: self.capture_region("capture.copy"),
             "capture.pin": lambda: self.capture_region("capture.pin"),
             "ocr.region": lambda: self.capture_region("ocr.region"),
-            "app.open_editor": self._not_available,
+            "app.open_editor": self.edit_last_capture,
             "app.open_history": self.show_history,
         }
         if register_hotkeys:
@@ -408,6 +408,7 @@ class AppController(QObject):
         preview.pin_requested.connect(self.pin)
         preview.more_requested.connect(lambda r: self.start_scrolling(r.region))
         preview.steps_requested.connect(self.open_steps)
+        preview.edit_requested.connect(self.open_editor)
         preview.closed.connect(lambda: setattr(self, "_preview", None) if self._preview is preview else None)
         self._preview = preview
         preview.show_animated()
@@ -447,10 +448,8 @@ class AppController(QObject):
 
     def open_editor(self, result: CaptureResult) -> QWidget:
         """Image editor; Done runs the usual after-capture actions."""
-        try:
-            from screenpilot.ui.editor_window import EditorWindow
-        except ImportError:  # editor not available yet
-            return self.open_steps(result)
+        from screenpilot.ui.editor_window import EditorWindow
+
         editor = EditorWindow(
             result,
             self.app.translator,
@@ -466,6 +465,29 @@ class AppController(QObject):
         editor.raise_()
         editor.activateWindow()
         return editor
+
+    def edit_last_capture(self) -> None:
+        """Open the newest capture from the history in the editor."""
+        entries = self.app.history.entries()
+        if not entries:
+            self._not_available()
+            return
+        result = self.load_history_capture(entries[0])
+        if result is not None:
+            self.open_editor(result)
+
+    def load_history_capture(self, entry) -> CaptureResult | None:
+        from PIL import Image
+
+        from screenpilot.capture.image import CapturedImage
+
+        try:
+            with Image.open(entry.path) as img:
+                image = CapturedImage.from_pil(img)
+        except OSError as exc:
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            return None
+        return CaptureResult(image, entry.mode, Rect(0, 0, image.width, image.height), metadata={"source": entry.path})
 
     def run_ocr(self, result: CaptureResult) -> None:
         self._not_available()

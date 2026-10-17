@@ -101,6 +101,7 @@ class QuickPreview(QWidget):
     pin_requested = Signal(object)  # CaptureResult
     more_requested = Signal(object)  # CaptureResult: extend downwards with a scrolling capture
     steps_requested = Signal(object)  # CaptureResult: open step numbering
+    edit_requested = Signal(object)  # CaptureResult: open the editor
     closed = Signal()
 
     def __init__(
@@ -176,7 +177,7 @@ class QuickPreview(QWidget):
             ("pin", "preview.pin", lambda: (self.pin_requested.emit(self.result), self.dismiss())),
             ("steps", "preview.steps", lambda: (self.steps_requested.emit(self.result), self.dismiss())),
             ("folder", "preview.folder", lambda: self.saved_path and reveal(self.saved_path)),
-            ("edit", "preview.edit", None),
+            ("edit", "preview.edit", lambda: (self.edit_requested.emit(self.result), self.dismiss())),
         ):
             button = IconButton(name, size=18)
             rt.bind(button.setToolTip, key)

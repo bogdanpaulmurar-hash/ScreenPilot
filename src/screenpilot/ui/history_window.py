@@ -174,6 +174,13 @@ class HistoryWindow(QWidget):
         if entry is not None:
             self.app.shell.reveal(Path(entry.path))
 
+    def _edit(self) -> None:
+        entry = self._current()
+        if entry is not None:
+            result = self.controller.load_history_capture(entry)
+            if result is not None:
+                self.controller.open_editor(result)
+
     def _steps(self) -> None:
         entry = self._current()
         if entry is None:
@@ -212,6 +219,7 @@ class HistoryWindow(QWidget):
             ("history.copy_image", self._copy_image),
             ("history.copy_path", self._copy_path),
             ("history.open_folder", self._reveal),
+            ("history.edit", self._edit),
             ("history.steps", self._steps),
             ("history.remove", self._remove),
         ):
