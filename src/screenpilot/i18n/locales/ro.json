@@ -512,11 +512,13 @@
   "settings.rec.output_dir.desc": "Unde se salvează videoclipurile și GIF-urile.",
   "settings.rec.open_folder": "Deschide dosarul după înregistrare",
   "settings.rec.ffmpeg": "FFmpeg",
-  "settings.rec.ffmpeg.desc": "Instrument opțional pentru MP4 și sunet. Nu e inclus: instalează o versiune aprobată (ex. winget install Gyan.FFmpeg) sau pune ffmpeg.exe lângă ScreenPilot.exe.",
+  "settings.rec.ffmpeg.desc": "Instrument opțional pentru MP4 și sunet. Nu e inclus: instalează o versiune aprobată (ex. winget install Gyan.FFmpeg) sau copiază ffmpeg.exe în %LOCALAPPDATA%\\ScreenPilot.",
   "settings.rec.ffmpeg.check": "Verifică din nou",
   "settings.rec.ffmpeg.missing": "FFmpeg nu a fost găsit — înregistrările se salvează ca GIF.",
   "settings.rec.ffmpeg.found": "FFmpeg {version} găsit: {path}",
   "cli.record.started": "Se înregistrează {seconds} s (encoder: {encoder})… Ctrl+C oprește mai devreme.",
   "cli.record.saved": "Salvat {path} ({seconds} s, {frames} cadre, {fps} fps capturate, {grab} ms per captură)",
-  "recording.retrying": "Encoderul video nu a putut porni; se încearcă altul…"
+  "recording.retrying": "Encoderul video nu a putut porni; se încearcă altul…",
+  "settings.start_with_windows": "Pornește odată cu Windows",
+  "settings.start_with_windows.desc": "ScreenPilot pornește în tray la autentificare (fără fereastră de consolă, fără drepturi de admin)."
 }

@@ -64,6 +64,22 @@ jobs:
             python -m screenpilot record --rect 0,0,640,360 --seconds 3 --format mp4 --out smoke/recording.mp4
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Per-user install script (venv, shortcut, autostart, uninstall)
+        if: runner.os == 'Windows' && matrix.python == '3.12'
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "sp-install"
+          powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Autostart -NoLaunch -InstallDir $dir
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed" }
+          $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\ScreenPilot.lnk"
+          if (-not (Test-Path $lnk)) { throw "Start-menu shortcut missing" }
+          $run = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run").ScreenPilot
+          Write-Host "Run entry: $run"
+          if ($run -notlike "*pythonw.exe*--autostart*") { throw "autostart entry wrong: $run" }
+          & (Join-Path $dir "venv\Scripts\python.exe") -m screenpilot version
+          powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 -InstallDir $dir
+          if (Test-Path $lnk) { throw "shortcut not removed" }
+          $after = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run").ScreenPilot
+          if ($after) { throw "autostart entry not removed" }
       - name: Upload smoke captures
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

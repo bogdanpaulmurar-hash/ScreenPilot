@@ -22,7 +22,7 @@ enterprise suitability, security history.
 | pyautogui | Pulls several dependencies; not needed. Rejected. |
 | opencv-python | ~90 MB; only needed for advanced UI-element detection. Deferred to M6 as an optional plugin. |
 | pytesseract + Tesseract | Tesseract is mature (Apache-2.0) but adds ~40-80 MB with language data. Planned as *optional* OCR backend; default OCR will be the built-in Windows OCR engine (no install). Deferred to M3. |
-| PyInstaller | **Approved, build-time only** (not imported by the app). GPL-2.0 with the bootloader exception, which explicitly allows distributing the generated executables under any licence. Mature (15+ years), active releases. Used by CI to produce the portable zip. Note: unsigned executables may trigger SmartScreen; code signing to be added with a corporate certificate. |
+| PyInstaller | **Approved, build-time only** (not imported by the app). GPL-2.0 with the bootloader exception, which explicitly allows distributing the generated executables under any licence. Mature (15+ years), active releases. Used by CI to produce a portable zip as a build check only — **not the recommended distribution**: unsigned executables are often quarantined by antivirus/EDR. ScreenPilot is installed as Python (scripts/install.ps1: private venv + pythonw.exe). Note: unsigned executables may trigger SmartScreen; code signing to be added with a corporate certificate. |
 
 ## Optional external tools (not bundled, not imported)
 

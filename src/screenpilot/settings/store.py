@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
     "general": {
         "language": "en",
         "start_minimized": False,
+        "start_with_windows": False,
         "first_run_completed": False,
         "tester_mode": False,
         "theme": "system",

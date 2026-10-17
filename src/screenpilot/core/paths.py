@@ -22,7 +22,10 @@ def application_dir() -> Path:
     """Directory containing the executable (frozen) or the source checkout."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[3]
+    here = Path(__file__).resolve()
+    if "site-packages" in here.parts:  # pip-installed (scripts/install.ps1): the venv root
+        return Path(sys.prefix)
+    return here.parents[3]
 
 
 @dataclass(frozen=True)

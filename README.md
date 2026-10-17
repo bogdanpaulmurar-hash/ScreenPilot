@@ -16,7 +16,22 @@ documentation platform for Windows — written in Python.
 >
 > **Portable build**: GitHub › Releases › *nightly* → unzip → `ScreenPilot.exe`.
 
-## Quick start (Windows, Python 3.10+)
+## Install (Windows, Python 3.10+, no admin rights, no .exe)
+
+Download or clone the repository, then:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Autostart
+```
+
+* ScreenPilot gets its **own private Python environment** in
+  `%LOCALAPPDATA%\ScreenPilot\venv` — it never touches your other Python apps.
+* It runs with `pythonw.exe`: **no console window**, only the tray icon, with
+  its own taskbar identity and icon.
+* `-Autostart` starts it with Windows (also a switch in Settings › General).
+* Start menu › **ScreenPilot**. Uninstall: `scripts\uninstall.ps1`.
+
+## Development (from a checkout)
 
 ```powershell
 git clone https://github.com/bogdanpaulmurar-hash/ScreenPilot.git

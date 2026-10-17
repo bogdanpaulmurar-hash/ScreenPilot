@@ -34,7 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("version")
-    sub.add_parser("gui", help="start the desktop app (system tray)")
+    gui = sub.add_parser("gui", help="start the desktop app (system tray)")
+    gui.add_argument("--autostart", action="store_true", help="started with Windows: stay in the tray")
+    setup = sub.add_parser("setup", help="Start-menu shortcut, autostart and icon for this installation")
+    setup.add_argument("--start-menu", action="store_true", help="create the Start-menu shortcut")
+    setup.add_argument("--autostart", choices=("on", "off"), help="start with Windows")
+    setup.add_argument("--remove", action="store_true", help="remove the shortcut and the autostart entry")
     sub.add_parser("monitors")
     sub.add_parser("windows")
     sub.add_parser("hotkeys")
@@ -101,6 +106,30 @@ def _record(app, args) -> int:
     return 0
 
 
+def _setup(app, args) -> int:
+    from screenpilot.branding import write_ico
+    from screenpilot.platform.autostart import SHORTCUT_NAME, Autostart, create_shortcut, start_menu_dir
+
+    autostart = Autostart()
+    link = start_menu_dir() / SHORTCUT_NAME
+    if args.remove:
+        link.unlink(missing_ok=True)
+        autostart.set_enabled(False)
+        app.settings.set("general.start_with_windows", False)
+        print(f"Removed {link} and the autostart entry")
+        return 0
+    icon = write_ico(app.paths.data_dir / "screenpilot.ico")
+    print(f"Icon: {icon}")
+    if args.start_menu:
+        print(f"Shortcut: {create_shortcut(link, icon)}")
+    if args.autostart:
+        enabled = args.autostart == "on"
+        app.settings.set("general.start_with_windows", enabled)
+        autostart.set_enabled(enabled)
+        print(f"Start with Windows: {'on' if enabled else 'off'} ({autostart.command})")
+    return 0
+
+
 def _record_info(app) -> None:
     t = app.translator.t
     info = app.recording.ffmpeg(refresh=True)
@@ -152,7 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "gui":
         from screenpilot.ui.main import main as gui_main
 
-        return gui_main([sys.argv[0]])
+        return gui_main([sys.argv[0]] + (["--autostart"] if args.autostart else []))
 
     from screenpilot.app import create_app
 
@@ -190,6 +219,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "diagnostics":
             app.capture.freeze()  # one measured capture so the bundle has timings
             print(app.export_diagnostics(args.out))
+        elif args.command == "setup":
+            return _setup(app, args)
         elif args.command == "record":
             return _record(app, args)
         elif args.command == "record-info":

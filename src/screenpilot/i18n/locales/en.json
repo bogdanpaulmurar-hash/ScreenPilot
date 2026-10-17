@@ -512,11 +512,13 @@
   "settings.rec.output_dir.desc": "Where videos and GIFs are saved.",
   "settings.rec.open_folder": "Open the folder after recording",
   "settings.rec.ffmpeg": "FFmpeg",
-  "settings.rec.ffmpeg.desc": "Optional tool for MP4 and sound. Not included: install an approved build (e.g. winget install Gyan.FFmpeg) or put ffmpeg.exe next to ScreenPilot.exe.",
+  "settings.rec.ffmpeg.desc": "Optional tool for MP4 and sound. Not included: install an approved build (e.g. winget install Gyan.FFmpeg) or copy ffmpeg.exe into %LOCALAPPDATA%\\ScreenPilot.",
   "settings.rec.ffmpeg.check": "Check again",
   "settings.rec.ffmpeg.missing": "FFmpeg not found — recordings are saved as GIF.",
   "settings.rec.ffmpeg.found": "FFmpeg {version} found: {path}",
   "cli.record.started": "Recording for {seconds} s (encoder: {encoder})… Ctrl+C stops earlier.",
   "cli.record.saved": "Saved {path} ({seconds} s, {frames} frames, {fps} fps captured, {grab} ms per grab)",
-  "recording.retrying": "The video encoder could not start; trying another one…"
+  "recording.retrying": "The video encoder could not start; trying another one…",
+  "settings.start_with_windows": "Start with Windows",
+  "settings.start_with_windows.desc": "ScreenPilot starts in the tray when you sign in (no console window, no admin rights)."
 }

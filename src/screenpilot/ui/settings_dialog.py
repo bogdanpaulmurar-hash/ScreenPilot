@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -252,6 +253,12 @@ class SettingsDialog(QDialog):
         )
         column.addWidget(
             self._row("chevron_down", "settings.edge_bar", "settings.edge_bar.desc", self._toggle("general.edge_bar"))
+        )
+        autostart_toggle = self._toggle("general.start_with_windows")
+        if sys.platform != "win32":
+            autostart_toggle.setEnabled(False)
+        column.addWidget(
+            self._row("logo", "settings.start_with_windows", "settings.start_with_windows.desc", autostart_toggle)
         )
         column.addWidget(
             self._row(

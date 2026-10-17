@@ -91,33 +91,23 @@ class Retranslator:
         self._callbacks.clear()
 
 
-def app_icon(size: int = 64, badge: QColor | None = None) -> QIcon:
-    """The ScreenPilot icon, drawn in code (no image assets to ship or vet)."""
+def app_icon(size: int = 256, badge: QColor | None = None) -> QIcon:
+    """The ScreenPilot icon (tray, taskbar, windows) from :mod:`screenpilot.branding`."""
+    from screenpilot.branding import ICO_SIZES, render_icon
+
     icon = QIcon()
-    for px in (16, 20, 24, 32, 48, size):
-        pix = QPixmap(px, px)
-        pix.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pix)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        m = px * 0.08
-        body = QRectF(m, m, px - 2 * m, px - 2 * m)
-        path = QPainterPath()
-        path.addRoundedRect(body, px * 0.2, px * 0.2)
-        p.fillPath(path, ACCENT)
-        # Selection corners
-        pen = QPen(QColor("white"), max(1.5, px * 0.09))
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(pen)
-        a, b, c = px * 0.28, px * 0.72, px * 0.16
-        for (x, y, dx, dy) in ((a, a, 1, 1), (b, a, -1, 1), (a, b, 1, -1), (b, b, -1, -1)):
-            p.drawLine(QPointF(x, y), QPointF(x + dx * c, y))
-            p.drawLine(QPointF(x, y), QPointF(x, y + dy * c))
+    for px in sorted(set(ICO_SIZES) | {size}):
+        rgba = render_icon(px)
+        image = QImage(rgba.tobytes("raw", "RGBA"), px, px, px * 4, QImage.Format.Format_RGBA8888).copy()
+        pix = QPixmap.fromImage(image)
         if badge is not None:
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
             r = px * 0.32
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(badge)
             p.drawEllipse(QRectF(px - r, px - r, r, r))
-        p.end()
+            p.end()
         icon.addPixmap(pix)
     return icon
 

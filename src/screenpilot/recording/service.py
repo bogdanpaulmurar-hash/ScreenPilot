@@ -36,6 +36,7 @@ class RecordingService:
         policy=None,
         default_dir: Callable[[], Path] | None = None,
         app_dir: Path | None = None,
+        extra_dirs: tuple[Path, ...] = (),
         source_factory: Callable[[], FrameSource] | None = None,
         ffmpeg_prober: Callable[[Path], FfmpegInfo] = probe,
     ) -> None:
@@ -45,6 +46,7 @@ class RecordingService:
         self.policy = policy
         self.default_dir = default_dir or (lambda: Path.home() / "Videos")
         self.app_dir = app_dir
+        self.extra_dirs = extra_dirs
         self.source_factory = source_factory or (lambda: default_source(self.backend))
         self.ffmpeg_prober = ffmpeg_prober
         self._ffmpeg: FfmpegInfo | None = None
@@ -67,7 +69,7 @@ class RecordingService:
             if refresh or self._ffmpeg_key != configured:
                 self._ffmpeg_key = configured
                 self._ffmpeg = None
-                path = find_ffmpeg(configured, self.app_dir)
+                path = find_ffmpeg(configured, self.app_dir, self.extra_dirs)
                 if path is None:
                     log.info("ffmpeg not found (configured=%r); MP4 recording unavailable", configured)
                 else:

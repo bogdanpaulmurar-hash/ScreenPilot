@@ -190,6 +190,7 @@ def create_app(
         policy=policy,
         default_dir=lambda: app.output_dir / "Recordings",
         app_dir=application_dir(),
+        extra_dirs=(paths.data_dir,),
     )
     backend_obj = app.capture.backend
     if hasattr(backend_obj, "include_cursor"):

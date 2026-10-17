@@ -60,22 +60,22 @@ def _run(args: Sequence[str], timeout: float = PROBE_TIMEOUT) -> "subprocess.Com
 
 
 # -- discovery ------------------------------------------------------------------
-def candidate_paths(configured: str, app_dir: Path | None) -> list[Path]:
+def candidate_paths(configured: str, app_dir: Path | None, extra_dirs: Sequence[Path] = ()) -> list[Path]:
     exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     paths: list[Path] = []
     if configured:
         p = Path(os.path.expandvars(configured)).expanduser()
         paths.append(p / exe if p.is_dir() else p)
-    if app_dir is not None:
-        paths += [app_dir / exe, app_dir / "ffmpeg" / "bin" / exe, app_dir / "ffmpeg" / exe]
+    for folder in ([app_dir] if app_dir is not None else []) + list(extra_dirs):
+        paths += [folder / exe, folder / "ffmpeg" / "bin" / exe, folder / "ffmpeg" / exe]
     found = shutil.which("ffmpeg")
     if found:
         paths.append(Path(found))
     return paths
 
 
-def find_ffmpeg(configured: str = "", app_dir: Path | None = None) -> Path | None:
-    for path in candidate_paths(configured, app_dir):
+def find_ffmpeg(configured: str = "", app_dir: Path | None = None, extra_dirs: Sequence[Path] = ()) -> Path | None:
+    for path in candidate_paths(configured, app_dir, extra_dirs):
         if path.is_file():
             return path
     return None

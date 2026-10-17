@@ -59,10 +59,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 3
 
     from screenpilot.app import create_app
+    from screenpilot.platform.autostart import Autostart, set_app_user_model_id
     from screenpilot.ui.controller import AppController
     from screenpilot.ui.qt_helpers import app_icon
     from screenpilot.ui.tray import TrayIcon
 
+    autostarted = "--autostart" in args
+    set_app_user_model_id()  # own taskbar button + icon, separate from other pythonw apps
     qt_app = QApplication.instance() or QApplication(list(argv) if argv is not None else sys.argv)
     qt_app.setApplicationName("ScreenPilot")
     qt_app.setOrganizationName("ScreenPilot")
@@ -88,6 +91,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         app.shutdown()
         return 1
 
+    autostart = Autostart()
+    try:
+        autostart.sync(bool(app.settings.get("general.start_with_windows")))
+    except OSError:
+        log.exception("Could not update the autostart entry")
+
+    def on_autostart(key: str, value) -> None:
+        if key == "general.start_with_windows":
+            try:
+                autostart.set_enabled(bool(value))
+            except OSError:
+                log.exception("Could not update the autostart entry")
+
+    app.settings.add_listener(on_autostart)
+
     controller = AppController(app)
     tray = TrayIcon(controller)
     tray.show()
@@ -100,7 +118,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         edge_bar.start()
     qt_app.aboutToQuit.connect(lambda: lock.unlock())
 
-    if not app.settings.get("general.first_run_completed"):
+    if autostarted:
+        log.info("Started with Windows: staying in the tray")
+    elif not app.settings.get("general.first_run_completed"):
         controller.show_wizard()
     elif not app.settings.get("general.start_minimized"):
         controller.show_hub()
