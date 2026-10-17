@@ -333,5 +333,7 @@
   "editor.hint.blur": "Drag over sensitive information",
   "editor.hint.pixelate": "Drag over sensitive information",
   "editor.hint.spotlight": "Drag the area to keep bright; the rest is dimmed",
-  "history.edit": "Edit"
+  "history.edit": "Edit",
+  "error.ocr": "Text recognition failed.",
+  "error.ocr_language": "This OCR language isn't installed in Windows. Add it in Settings › Time & language › Language."
 }

@@ -333,5 +333,7 @@
   "editor.hint.blur": "Trage peste informațiile sensibile",
   "editor.hint.pixelate": "Trage peste informațiile sensibile",
   "editor.hint.spotlight": "Trage zona care rămâne luminoasă; restul se întunecă",
-  "history.edit": "Editează"
+  "history.edit": "Editează",
+  "error.ocr": "Recunoașterea textului a eșuat.",
+  "error.ocr_language": "Limba OCR nu este instalată în Windows. Adaug-o din Setări › Oră și limbă › Limbă."
 }
