@@ -55,6 +55,7 @@ class AppController(QObject):
     notify = Signal(str, str, bool)  # title, body, is_error
     hotkeys_changed = Signal()
     captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
+    ocr_finished = Signal(object, object, object)  # window, OcrResult | None, error str | None
     scroll_finished = Signal(object, str, object)  # CaptureResult | None, reason, scroller
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
@@ -77,6 +78,8 @@ class AppController(QObject):
         self._scroll_indicator: QWidget | None = None
         self._region_default = "default"  # what Enter does in the selector ("scroll" from the hub tile)
         self.scroll_finished.connect(self._on_scroll_finished)
+        self.ocr_finished.connect(self._on_ocr_finished)
+        self.ocr_engine_factory = None  # tests inject a fake engine
         self.hotkey_pressed.connect(self._on_hotkey)
         self.captured.connect(self._on_captured)
 
@@ -457,6 +460,7 @@ class AppController(QObject):
             copy=lambda image: self.copy_result(CaptureResult(image, result.mode, result.region)),
             save_dir=self.app.output_dir,
             settings=self.app.settings,
+            ocr_engine=self.ocr_engine,
         )
         key = f"editor-{id(editor)}"
         self._windows[key] = editor
@@ -489,8 +493,69 @@ class AppController(QObject):
             return None
         return CaptureResult(image, entry.mode, Rect(0, 0, image.width, image.height), metadata={"source": entry.path})
 
-    def run_ocr(self, result: CaptureResult) -> None:
-        self._not_available()
+    def ocr_engine(self):
+        if self.ocr_engine_factory is not None:
+            return self.ocr_engine_factory()
+        from screenpilot.ocr import default_engine
+
+        return default_engine(self.app.settings.get("ocr.engine"))
+
+    def run_ocr(self, result: CaptureResult, language: str | None = None, window=None) -> QWidget | None:
+        """Recognize text in the background; copy it and/or show the OCR window."""
+        from screenpilot.ui.ocr_window import OcrWindow
+
+        language = language or self.app.settings.get("ocr.language")
+        if window is None and self.app.settings.get("ocr.show_window"):
+            window = OcrWindow(
+                result, self.app.translator, copy_text=self.copy_text, save_dir=self.app.output_dir, language=language
+            )
+            window.rerun_requested.connect(lambda lang, w=window: self.run_ocr(result, lang, w))
+            key = f"ocr-{id(window)}"
+            self._windows[key] = window
+            window.destroyed.connect(lambda *_: self._windows.pop(key, None))
+            window.show()
+            window.raise_()
+        elif window is None:
+            self.notify.emit(self.t("ocr.title"), self.t("ocr.running"), False)
+        if window is not None:
+            window.set_running()
+
+        def work() -> None:
+            try:
+                engine = self.ocr_engine()
+                ocr = engine.recognize(result.image, None if language == "auto" else language)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("OCR failed")
+                message = self.t(getattr(exc, "message_key", "error.ocr"))
+                self.ocr_finished.emit(window, None, message)
+                return
+            self.ocr_finished.emit(window, ocr, None)
+
+        threading.Thread(target=work, name="OCR", daemon=True).start()
+        return window
+
+    def _on_ocr_finished(self, window, ocr, error: str | None) -> None:
+        alive = window is not None and window in self._windows.values()
+        if error:
+            if alive:
+                window.set_error(error)
+            self.notify.emit(self.t("notify.failed.title"), error, True)
+            return
+        if alive:
+            window.set_result(ocr)
+        if self.app.settings.get("ocr.auto_copy") and ocr.text.strip():
+            self.copy_text(ocr.text)
+            self.notify.emit(self.t("ocr.title"), self.t("ocr.copied", count=len(ocr.lines)), False)
+        elif not ocr.text.strip() and not alive:
+            self.notify.emit(self.t("ocr.title"), self.t("ocr.empty"), False)
+        self.last_ocr = ocr
+
+    def copy_text(self, text: str) -> None:
+        try:
+            self.app.clipboard.set_text(text)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Copy text failed")
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
 
     def open_steps(self, result: CaptureResult) -> QWidget:
         """Step numbering on a capture; Done runs the usual after-capture actions."""

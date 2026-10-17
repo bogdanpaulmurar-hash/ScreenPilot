@@ -375,6 +375,59 @@ class EditorTests(UiTestCase):
         editor.close()
 
 
+class FakeOcrEngine:
+    name = "fake"
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def available(self):
+        return True
+
+    def languages(self):
+        return ["en-US"]
+
+    def recognize(self, image, language=None):
+        from screenpilot.ocr import OcrLine, OcrResult, OcrWord
+
+        words = [
+            OcrLine((OcrWord("Customer", Rect(24, 60, 80, 18), 97.0), OcrWord("Contoso", Rect(178, 60, 70, 18), 95.0))),
+            OcrLine((OcrWord("contact:", Rect(24, 100, 70, 18), 90.0), OcrWord("ana.pop@contoso.ro", Rect(178, 100, 160, 18), 88.0))),
+        ]
+        return OcrResult(tuple(words), language or "en-US", self.name)
+
+
+class OcrUiTests(UiTestCase):
+    def test_ocr_mode_copies_text_and_shows_window(self):
+        self.controller.ocr_engine_factory = lambda: FakeOcrEngine(self.backend)
+        self.controller.trigger("ocr.region")
+        self.assertTrue(wait_until(lambda: self.controller.selector.active))
+        overlay = self.controller.selector.overlays[0]
+        erp = self.window.bounds
+        self.select(overlay, QPoint(erp.x - self.screen_rect.x, erp.y - self.screen_rect.y),
+                    QPoint(erp.right - self.screen_rect.x - 1, erp.bottom - self.screen_rect.y - 1))
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.app.clipboard.text is not None))
+        self.assertEqual(self.app.clipboard.text, "Customer Contoso\ncontact: ana.pop@contoso.ro")
+        window = next(w for k, w in self.controller._windows.items() if k.startswith("ocr-"))
+        QTest.qWaitForWindowExposed(window)
+        window.search.setText("contoso")
+        self.assertEqual(window.matches.text(), "2 matches")
+        shot(window, "27_ocr_window")
+        window.copy_markdown()
+        self.assertIn("Customer", self.app.clipboard.text)
+
+    def test_editor_auto_blur(self):
+        self.controller.ocr_engine_factory = lambda: FakeOcrEngine(self.backend)
+        editor = self.controller.open_editor(self.app.capture.capture_window())
+        QTest.qWaitForWindowExposed(editor)
+        count = editor.auto_blur()
+        self.assertEqual(count, 1)
+        self.assertEqual(editor.doc.shapes[-1].kind, "blur")
+        self.assertIn("e-mail", editor.hint.text())
+        editor.close()
+
+
 class StepEditorTests(UiTestCase):
     def test_number_steps_on_a_window_capture(self):
         overlay = self.open_selector()

@@ -61,6 +61,12 @@ DEFAULTS: dict[str, Any] = {
         "dim": 47,
         "magnifier": True,
     },
+    "ocr": {
+        "language": "auto",
+        "engine": "auto",
+        "auto_copy": True,
+        "show_window": True,
+    },
     "editor": {
         "color": "#d13438",
         "width": 4,

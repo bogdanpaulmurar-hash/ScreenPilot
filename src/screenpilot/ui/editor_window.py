@@ -345,6 +345,7 @@ class EditorWindow(QWidget):
         copy: Callable[[CapturedImage], None],
         save_dir: Path,
         settings=None,
+        ocr_engine: Callable[[], object] | None = None,
     ) -> None:
         super().__init__(None)
         self.result = result
@@ -353,6 +354,7 @@ class EditorWindow(QWidget):
         self._copy = copy
         self.save_dir = save_dir
         self.settings = settings
+        self._ocr_engine = ocr_engine
         self.doc = EditorDocument(result.image.width, result.image.height)
         self.rt = rt = Retranslator(translator)
         self.destroyed.connect(lambda *_: rt.dispose())
@@ -432,6 +434,12 @@ class EditorWindow(QWidget):
         rt.bind(self.snap_chip.setToolTip, "steps.snap.tip")
         self.snap_chip.toggled.connect(lambda on: setattr(self.canvas, "snap_steps", on))
         props.addWidget(self.snap_chip)
+        self.autoblur_chip = Chip("blur")
+        rt.bind(self.autoblur_chip.setText, "editor.autoblur")
+        rt.bind(self.autoblur_chip.setToolTip, "editor.autoblur.tip")
+        self.autoblur_chip.clicked.connect(self.auto_blur)
+        self.autoblur_chip.setEnabled(ocr_engine is not None)
+        props.addWidget(self.autoblur_chip)
         props.addStretch(1)
         self.undo_button = self._icon_button("undo", "editor.undo", self.undo)
         self.redo_button = self._icon_button("redo", "editor.redo", self.redo)
@@ -540,6 +548,34 @@ class EditorWindow(QWidget):
         tool = self.canvas.tool
         self.hint.setText(self.t(f"editor.hint.{tool}") if self.rt.translator.has(f"editor.hint.{tool}") else self.t("editor.hint.draw"))
         self.undo_button.setEnabled(self.doc.can_undo)
+
+    def auto_blur(self) -> int:
+        """OCR the image, find sensitive data and add blur shapes over it."""
+        from PySide6.QtWidgets import QApplication
+
+        from screenpilot.ocr import blur_rects, find_sensitive
+
+        if self._ocr_engine is None:
+            return 0
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            ocr = self._ocr_engine().recognize(self.result.image)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Auto blur OCR failed")
+            self.hint.setText(str(exc))
+            return 0
+        finally:
+            QApplication.restoreOverrideCursor()
+        matches = find_sensitive(ocr)
+        for rect in blur_rects(matches):
+            self.doc.add(Shape("blur", Point(rect.x, rect.y), Point(rect.right, rect.bottom), strength=10))
+        self.canvas.refresh()
+        if matches:
+            kinds = ", ".join(sorted({self.t(f"sensitive.{m.kind}") for m in matches}))
+            self.hint.setText(self.t("editor.autoblur.done", count=len(matches), kinds=kinds))
+        else:
+            self.hint.setText(self.t("editor.autoblur.none"))
+        return len(matches)
 
     def undo(self) -> None:
         if self.doc.undo():

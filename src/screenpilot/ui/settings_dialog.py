@@ -318,12 +318,33 @@ class SettingsDialog(QDialog):
         row.addWidget(browse)
         folder_card.body.addLayout(row)
         column.addWidget(folder_card)
+
+        ocr_title = label(role="subtitle")
+        self.rt.bind(ocr_title.setText, "settings.ocr")
+        column.addSpacing(8)
+        column.addWidget(ocr_title)
+        self.ocr_language = QComboBox()
+        for code in ("auto", "en", "ro", "de"):
+            self.ocr_language.addItem("", code)
+        self._retranslate_ocr_combo()
+        self.rt.on_change(self._retranslate_ocr_combo)
+        self.ocr_language.setCurrentIndex(max(0, self.ocr_language.findData(self.settings.get("ocr.language"))))
+        self.ocr_language.currentIndexChanged.connect(lambda _i: self._set("ocr.language", self.ocr_language.currentData()))
+        column.addWidget(self._row("ocr", "settings.ocr.language", "settings.ocr.language.desc", self.ocr_language))
+        column.addWidget(self._row("copy", "settings.ocr.auto_copy", None, self._toggle("ocr.auto_copy")))
+        column.addWidget(self._row("text", "settings.ocr.show_window", None, self._toggle("ocr.show_window")))
         column.addStretch(1)
 
         self._on_format()
         self._update_preview()
         self.rt.on_change(self._update_preview)
         return page
+
+    def _retranslate_ocr_combo(self) -> None:
+        names = {"en": "English", "ro": "Română", "de": "Deutsch"}
+        for i in range(self.ocr_language.count()):
+            code = self.ocr_language.itemData(i)
+            self.ocr_language.setItemText(i, self.t("ocr.language.auto") if code == "auto" else names[code])
 
     def _on_format(self, *_):
         fmt = self.image_format.currentData()
