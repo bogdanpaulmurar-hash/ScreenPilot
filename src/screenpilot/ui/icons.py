@@ -63,6 +63,7 @@ _PATHS: dict[str, str] = {
     "stop": '<rect x="6" y="6" width="12" height="12" rx="2"/>',
     "zoom": '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.3-4.3M11 8v6M8 11h6"/>',
     "film": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7.5 4v16M16.5 4v16M3 9h4.5M3 15h4.5M16.5 9H21M16.5 15H21"/>',
+    "speaker": '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
     "mic": '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/>',
     "up": '<path d="m6 14 6-6 6 6"/>',
     "down": '<path d="m6 10 6 6 6-6"/>',

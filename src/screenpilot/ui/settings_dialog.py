@@ -753,7 +753,7 @@ class SettingsDialog(QDialog):
                 combo.setEnabled(False)
                 combo.setToolTip(self.t("policy.feature_disabled"))
         column.addWidget(self._row("mic", "settings.rec.microphone", None, self.rec_mic))
-        column.addWidget(self._row("video", "settings.rec.system_audio", "settings.rec.system_audio.desc", self.rec_system))
+        column.addWidget(self._row("speaker", "settings.rec.system_audio", "settings.rec.system_audio.desc", self.rec_system))
         detect = QPushButton()
         self.rt.bind(detect.setText, "settings.rec.detect_devices")
         detect.clicked.connect(self._detect_audio_devices)

@@ -69,6 +69,11 @@ def format_elapsed(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
+def format_duration(seconds: float) -> str:
+    """Short clips read better with tenths: "4.2 s"; longer ones as a clock."""
+    return f"{seconds:.1f} s" if seconds < 60 else format_elapsed(seconds)
+
+
 def format_size(size: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
@@ -285,7 +290,7 @@ class RecordingResultCard(QWidget):
         layout.addWidget(name)
         self.details = label(role="caption")
         self.details.setText(
-            f"{format_elapsed(result.duration)} · {format_size(result.size_bytes)} · {result.format.upper()}"
+            f"{format_duration(result.duration)} · {format_size(result.size_bytes)} · {result.format.upper()}"
             f" · {result.rect.width}×{result.rect.height}"
         )
         layout.addWidget(self.details)
