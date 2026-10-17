@@ -409,8 +409,8 @@ class ControllerTests(UiTestCase):
         self.assertEqual(calls, [])
         self.assertIsNone(self.controller._countdown)
 
-    def test_not_available_actions_notify(self):
-        self.controller.trigger("ocr.region")
+    def test_open_editor_hotkey_without_capture_is_harmless(self):
+        self.controller.trigger("app.open_editor")
         self.assertIn("future", self.notes[0][1])
 
 
