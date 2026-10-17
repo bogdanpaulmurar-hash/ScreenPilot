@@ -22,7 +22,7 @@ enterprise suitability, security history.
 | pyautogui | Pulls several dependencies; not needed. Rejected. |
 | opencv-python | ~90 MB; only needed for advanced UI-element detection. Deferred to M6 as an optional plugin. |
 | pytesseract + Tesseract | Tesseract is mature (Apache-2.0) but adds ~40-80 MB with language data. Planned as *optional* OCR backend; default OCR will be the built-in Windows OCR engine (no install). Deferred to M3. |
-| PyInstaller | Planned for packaging (GPL with bootloader exception, safe for distribution). To be reviewed in M1 alongside Nuitka. |
+| PyInstaller | **Approved, build-time only** (not imported by the app). GPL-2.0 with the bootloader exception, which explicitly allows distributing the generated executables under any licence. Mature (15+ years), active releases. Used by CI to produce the portable zip. Note: unsigned executables may trigger SmartScreen; code signing to be added with a corporate certificate. |
 
 ## Policy
 

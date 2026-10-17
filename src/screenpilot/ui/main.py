@@ -9,9 +9,47 @@ from typing import Sequence
 log = logging.getLogger(__name__)
 
 
+def self_test() -> int:
+    """Headless check used by the packaging pipeline: start the core, capture, export diagnostics."""
+    import tempfile
+    from pathlib import Path
+
+    from screenpilot.app import create_app
+    from screenpilot.core.paths import AppPaths
+
+    with tempfile.TemporaryDirectory() as tmp:
+        app = create_app(paths=AppPaths.under(Path(tmp), portable=True))
+        try:
+            result = app.capture.capture_all_monitors()
+            steps, ctx = app.run_after_capture(result, [{"id": "save"}])
+            ok = ctx.saved_path is not None and ctx.saved_path.exists()
+            from PySide6.QtWidgets import QApplication
+
+            qt = QApplication.instance() or QApplication([])
+            from screenpilot.ui.controller import AppController
+
+            controller = AppController(app, register_hotkeys=False)
+            controller.show_hub().close()
+            controller.shutdown()
+            del qt
+            Path(tmp, "self-test.ok").write_text("ok")
+            report = Path(sys.executable).with_name("self-test.txt")
+            try:
+                report.write_text(f"ok={ok} size={result.image.width}x{result.image.height}\n", encoding="utf-8")
+            except OSError:
+                pass
+            return 0 if ok else 1
+        except Exception:  # noqa: BLE001
+            log.exception("Self-test failed")
+            return 2
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import time
 
+    args = list(argv) if argv is not None else sys.argv
+    if "--self-test" in args:
+        return self_test()
     started = time.perf_counter()
     try:
         from PySide6.QtCore import QLockFile

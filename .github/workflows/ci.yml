@@ -93,3 +93,63 @@ jobs:
           git add -A
           git commit -q -m "UI screenshots for ${GITHUB_SHA::7}"
           git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screenshots
+
+  package:
+    # Portable Windows build (no Python needed) published as the "nightly" pre-release.
+    name: Portable package
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[ui]" "pyinstaller>=6.6"
+      - name: Build
+        shell: bash
+        run: |
+          VERSION=$(python -c "import screenpilot; print(screenpilot.__version__)")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          python -m PyInstaller --noconfirm --clean --windowed --name ScreenPilot \
+            --collect-data screenpilot \
+            --exclude-module tkinter --exclude-module unittest --exclude-module pydoc \
+            packaging/screenpilot_gui.py
+          touch dist/ScreenPilot/portable.flag
+          cp README.md docs/releases/$VERSION.md dist/ScreenPilot/ 2>/dev/null || cp README.md dist/ScreenPilot/
+          du -sh dist/ScreenPilot
+      - name: Self-test the packaged app
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QPA_FONTDIR: C:\Windows\Fonts
+        run: |
+          $p = Start-Process -FilePath dist\ScreenPilot\ScreenPilot.exe -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content dist\ScreenPilot\self-test.txt -ErrorAction SilentlyContinue
+          Remove-Item dist\ScreenPilot\self-test.txt -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "Self-test failed with exit code $($p.ExitCode)" }
+      - name: Zip
+        shell: pwsh
+        run: |
+          $name = "ScreenPilot-$env:VERSION-portable-win64.zip"
+          Compress-Archive -Path dist\ScreenPilot -DestinationPath $name
+          "ZIP=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "{0:N1} MB" -f ((Get-Item $name).Length / 1MB)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable-win64
+          path: ${{ env.ZIP }}
+      - name: Publish nightly pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly "$ZIP" --prerelease --target "$GITHUB_SHA" \
+            --title "ScreenPilot $VERSION nightly (${GITHUB_SHA::7})" \
+            --notes "Portable build: unzip and run ScreenPilot.exe. No installation or Python needed. Settings stay in the UserData folder next to the app. Release notes: docs/releases/$VERSION.md"
