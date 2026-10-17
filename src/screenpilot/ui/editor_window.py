@@ -165,17 +165,15 @@ class EditorCanvas(QWidget):
             self.refresh()
 
     def _new_shape(self, kind: str, p1: Point, p2: Point, **extra) -> Shape:
-        return Shape(
-            kind,
-            p1,
-            p2,
+        values = dict(
             color=self.color,
             width=self.width_px,
             font_size=self.font_size,
             fill=self.fill,
             strength=max(6, self.width_px * 3),
-            **extra,
         )
+        values.update(extra)
+        return Shape(kind, p1, p2, **values)
 
     @property
     def detector(self) -> EdgeDetector:
