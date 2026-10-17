@@ -579,7 +579,11 @@ class SettingsDialog(QDialog):
         self.timing_table = QTableWidget(0, 6)
         self.timing_table.verticalHeader().setVisible(False)
         self.timing_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.timing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header = self.timing_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, 6):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.timing_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.timing_table.setMinimumHeight(220)
         card.body.addWidget(self.timing_table)
         self.timing_empty = label(role="secondary")
