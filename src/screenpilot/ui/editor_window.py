@@ -381,7 +381,7 @@ class EditorWindow(QWidget):
             button.setIconSize(QSize(22, 22))
             button.setFixedSize(42, 42)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            rt.bind(button.setToolTip, f"editor.tool.{tool}", params_fn=lambda k=key: {"key": k})
+            rt.bind(button.setToolTip, f"editor.tool.{tool}", params_fn=lambda k=key: {"shortcut": k})
             button.clicked.connect(lambda _=False, tl=tool: self.set_tool(tl))
             self.tool_group.addButton(button)
             tools_col.addWidget(button)

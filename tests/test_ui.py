@@ -426,7 +426,7 @@ class PreviewTests(UiTestCase):
         shot(preview, "06_quick_preview")
         self.assertTrue(preview.title.text().startswith("Saved"))
         self.assertTrue(preview.buttons["folder"].isEnabled())
-        self.assertFalse(preview.buttons["edit"].isEnabled())
+        self.assertTrue(preview.buttons["edit"].isEnabled())
         self.assertEqual(self.notes, [])
         drag_file = preview._drag_file()
         self.assertTrue(drag_file.exists())
