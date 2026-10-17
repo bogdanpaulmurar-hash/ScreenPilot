@@ -10,6 +10,7 @@ its own default action, so the colour tells you what Enter will do:
 * copy     → copy only, nothing saved                 purple
 * pin      → pin to screen                           teal
 * ocr      → extract text                            gold
+* record   → record a video / GIF of the area        red / dark orange
 
 Colours, border thickness and dimming are user settings (``selector.*``).
 """
@@ -40,6 +41,8 @@ MODES: tuple[CaptureMode, ...] = (
     CaptureMode("tools.color", "color", "#ffffff", "mode.color"),
     CaptureMode("tools.measure", "measure", "#00cc6a", "mode.measure"),
     CaptureMode("capture.interval", "interval", "#e81123", "mode.interval"),
+    CaptureMode("record.video", "record", "#d13438", "mode.record"),
+    CaptureMode("record.gif", "record_gif", "#ca5010", "mode.record_gif"),
 )
 BY_ID = {m.id: m for m in MODES}
 BY_ACTION = {m.action: m for m in MODES}

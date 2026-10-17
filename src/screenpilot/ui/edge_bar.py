@@ -37,7 +37,7 @@ BUTTONS = (
     ("monitors", "hub.mode.all", "capture.all_monitors"),
     ("scroll", "hub.mode.scrolling", "capture.scrolling"),
     ("timer", "edgebar.delay", "delayed"),
-    ("video", "edgebar.video", None),
+    ("video", "edgebar.video", "record.video"),
     ("|", None, None),
     ("logo", "edgebar.hub", "hub"),
     ("history", "edgebar.history", "history"),
@@ -82,7 +82,7 @@ class EdgeBar(QWidget):
             button = QToolButton()
             button.setProperty("icon_name", icon_name)
             button.setToolButtonStyle(
-                Qt.ToolButtonStyle.ToolButtonTextUnderIcon if action and action.startswith("capture.") or action == "delayed"
+                Qt.ToolButtonStyle.ToolButtonTextUnderIcon if action and action.startswith(("capture.", "record.")) or action == "delayed"
                 else Qt.ToolButtonStyle.ToolButtonIconOnly
             )
             button.setMinimumWidth(BUTTON_W if button.toolButtonStyle() != Qt.ToolButtonStyle.ToolButtonIconOnly else 40)
@@ -93,9 +93,9 @@ class EdgeBar(QWidget):
                 params = lambda: {"seconds": self.app.settings.get("capture.default_delay_seconds")}  # noqa: E731
                 rt.bind(button.setToolTip, key, params_fn=params)
                 rt.bind(button.setText, "hub.delay", params_fn=params)
-            elif action and action.startswith("capture."):
+            elif action and action.startswith(("capture.", "record.")):
                 rt.bind(button.setText, key)
-                rt.bind(button.setToolTip, key)
+                rt.bind(button.setToolTip, key if action.startswith("capture.") else "edgebar.video.tip")
             else:
                 rt.bind(button.setToolTip, key)
             if action is None:

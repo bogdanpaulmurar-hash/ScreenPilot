@@ -32,6 +32,10 @@ jobs:
       - name: Install desktop UI dependencies
         if: runner.os == 'Windows'
         run: python -m pip install -e ".[ui]"
+      - name: Install FFmpeg (optional; enables the MP4 recording tests)
+        if: runner.os == 'Windows' && matrix.python == '3.12'
+        continue-on-error: true
+        run: choco install ffmpeg -y --no-progress
       - name: Unit, Windows integration and UI tests
         env:
           QT_QPA_PLATFORM: offscreen
@@ -54,6 +58,12 @@ jobs:
           python -m screenpilot capture all --out smoke/all.png
           python -m screenpilot capture region --rect 0,0,320,200 --out smoke/region.png
           python -m screenpilot diagnostics --out smoke/diagnostics.zip
+          python -m screenpilot record --rect 0,0,640,360 --seconds 2 --format gif --out smoke/recording.gif
+          python -m screenpilot record-info
+          if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+            python -m screenpilot record --rect 0,0,640,360 --seconds 3 --format mp4 --out smoke/recording.mp4
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Upload smoke captures
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

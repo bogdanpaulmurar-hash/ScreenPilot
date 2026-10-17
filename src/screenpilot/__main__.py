@@ -7,12 +7,16 @@ smoke test of the headless core on any Windows machine::
     python -m screenpilot capture all --out C:/Temp/desk.png
     python -m screenpilot capture region --rect 0,0,800,600 --delay 3
     python -m screenpilot --lang ro hotkeys
+    python -m screenpilot record --rect 0,0,1280,720 --seconds 10 --out C:/Temp/demo.mp4
+    python -m screenpilot record-info
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -43,7 +47,75 @@ def build_parser() -> argparse.ArgumentParser:
     cap.add_argument("--index", type=int, default=1, help="monitor number (monitor mode)")
     cap.add_argument("--delay", type=int, default=0, help="seconds to wait before capturing")
     cap.add_argument("--out", type=Path, help="save to this file and skip the configured actions")
+
+    rec = sub.add_parser("record", help="record the screen to MP4 (needs ffmpeg) or GIF")
+    rec.add_argument("--rect", help="x,y,width,height in virtual-desktop pixels (default: primary monitor)")
+    rec.add_argument("--seconds", type=float, default=5.0, help="duration (Ctrl+C stops earlier)")
+    rec.add_argument("--format", choices=("mp4", "gif"), help="default: the recording.format setting")
+    rec.add_argument("--fps", type=int, help="frame rate")
+    rec.add_argument("--out", type=Path, help="output file (default: the recordings folder)")
+    rec.add_argument("--no-effects", action="store_true", help="no cursor highlight / click ripples")
+    sub.add_parser("record-info", help="show ffmpeg, encoder and audio device detection")
     return parser
+
+
+def _record(app, args) -> int:
+    t = app.translator.t
+    service = app.recording
+    opts = service.options()
+    fmt = args.format or (args.out.suffix.lstrip(".").lower() if args.out and args.out.suffix else opts.format)
+    changes = {"format": fmt, "countdown": 0}
+    if args.fps:
+        changes["fps" if fmt == "mp4" else "gif_fps"] = args.fps
+    if args.no_effects:
+        changes.update(highlight_cursor=False, click_effects=False)
+    opts = dataclasses.replace(opts, **changes)
+    if args.rect:
+        rect = Rect.parse(args.rect)
+    else:
+        primary = next((m for m in app.capture.monitors() if m.primary), app.capture.monitors()[0])
+        rect = primary.bounds
+    recorder = service.start(rect, opts, output=args.out)
+    print(t("cli.record.started", seconds=args.seconds, encoder=recorder.encoder))
+    try:
+        end = time.monotonic() + args.seconds
+        while time.monotonic() < end and recorder.active:
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        pass
+    result = recorder.stop(wait=True, timeout=120)
+    if result is None:
+        reason = recorder.error.message_key if recorder.error else "recording.error.generic"
+        print(t("cli.capture.failed", reason=t(reason)) + (f" ({recorder.error})" if recorder.error else ""), file=sys.stderr)
+        return 1
+    print(
+        t(
+            "cli.record.saved",
+            path=result.path,
+            seconds=f"{result.duration:.1f}",
+            fps=f"{result.capture_fps:.1f}",
+            frames=result.frames_captured,
+            grab=f"{result.avg_grab_ms:.1f}",
+        )
+    )
+    return 0
+
+
+def _record_info(app) -> None:
+    t = app.translator.t
+    info = app.recording.ffmpeg(refresh=True)
+    if info is None:
+        print(t("settings.rec.ffmpeg.missing"))
+        return
+    print(t("settings.rec.ffmpeg.found", version=info.version, path=info.path))
+    h264 = sorted(e for e in info.encoders if "264" in e)
+    print(f"  H.264 encoders listed: {', '.join(h264) or '-'}")
+    try:
+        print(f"  Encoder chosen (auto): {info.choose_encoder('auto')}")
+    except ScreenPilotError as exc:
+        print(f"  {t(exc.message_key)}")
+    devices = info.audio_devices()
+    print(f"  {t('settings.rec.devices')}: {', '.join(devices) if devices else '-'}")
 
 
 def _do_capture(app, args) -> CaptureResult | None:
@@ -118,6 +190,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "diagnostics":
             app.capture.freeze()  # one measured capture so the bundle has timings
             print(app.export_diagnostics(args.out))
+        elif args.command == "record":
+            return _record(app, args)
+        elif args.command == "record-info":
+            _record_info(app)
         elif args.command == "capture":
             result = _do_capture(app, args)
             if result is None:

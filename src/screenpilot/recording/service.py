@@ -102,14 +102,14 @@ class RecordingService:
     def busy(self) -> bool:
         return self.current is not None and self.current.active
 
-    def prepare(self, options: RecordingOptions | None = None) -> Recorder:
+    def prepare(self, options: RecordingOptions | None = None, *, output: Path | None = None) -> Recorder:
         """Build a recorder (encoder chosen, output path reserved) without starting it."""
         if self.policy is not None and not self.policy.allows("recording"):
             raise RecordingError("Recording is disabled by your administrator", message_key="policy.feature_disabled")
         if self.busy:
             raise RecordingError("A recording is already running", message_key="recording.error.busy")
         opts = options or self.options()
-        output = self.output_path(opts.format)
+        output = output or self.output_path(opts.format)
         info = None if opts.is_gif else self.ffmpeg()
         if not opts.is_gif and info is None:
             raise RecordingError("ffmpeg was not found", message_key="recording.error.no_ffmpeg")
@@ -138,8 +138,8 @@ class RecordingService:
         self.current = recorder
         return recorder
 
-    def start(self, rect: Rect, options: RecordingOptions | None = None) -> Recorder:
-        recorder = self.prepare(options)
+    def start(self, rect: Rect, options: RecordingOptions | None = None, *, output: Path | None = None) -> Recorder:
+        recorder = self.prepare(options, output=output)
         try:
             recorder.start(rect)
         except Exception:

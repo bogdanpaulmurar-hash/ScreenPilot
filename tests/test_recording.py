@@ -344,6 +344,39 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(first.parent, Path(tmp) / "videos")
 
 
+class CliRecordTests(unittest.TestCase):
+    def test_record_command_writes_a_gif_and_info_runs(self):
+        import contextlib
+        import io
+
+        from screenpilot.__main__ import _record, _record_info, build_parser
+        from screenpilot.app import create_app
+        from screenpilot.core.paths import AppPaths
+        from test_workflow import FakeClipboard, FakeShell
+
+        with tempfile.TemporaryDirectory() as tmp:
+            app = create_app(
+                paths=AppPaths.under(Path(tmp), portable=True),
+                backend=DemoBackend(Rect(0, 0, 1280, 800)),
+                clipboard=FakeClipboard(),
+                shell=FakeShell(),
+            )
+            try:
+                out = Path(tmp) / "cli.gif"
+                args = build_parser().parse_args(
+                    ["record", "--rect", "0,0,320,200", "--seconds", "0.5", "--out", str(out), "--fps", "8"]
+                )
+                buffer = io.StringIO()
+                with contextlib.redirect_stdout(buffer):
+                    self.assertEqual(_record(app, args), 0)
+                    _record_info(app)
+                self.assertTrue(out.exists())
+                self.assertIn("cli.gif", buffer.getvalue())
+                self.assertIn("FFmpeg", buffer.getvalue())
+            finally:
+                app.shutdown()
+
+
 @unittest.skipUnless(FFMPEG, "ffmpeg not installed")
 class RealFfmpegTests(unittest.TestCase):
     def duration(self, path: Path) -> float:

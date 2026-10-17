@@ -38,6 +38,8 @@ from screenpilot.ui.region_selector import (
     ACTION_MEASURE,
     ACTION_OCR,
     ACTION_PIN,
+    ACTION_RECORD,
+    ACTION_RECORD_GIF,
     ACTION_SAVE_AS,
     ACTION_SCROLL,
     ACTION_STEPS,
@@ -90,6 +92,9 @@ class AppController(QObject):
         self.ocr_engine_factory = None  # tests inject a fake engine
         self.hotkey_pressed.connect(self._on_hotkey)
         self.captured.connect(self._on_captured)
+        from screenpilot.ui.recording import RecordingController
+
+        self.recording = RecordingController(self)
 
         self.actions: dict[str, Callable[[], None]] = {
             "capture.region": self.capture_region,
@@ -110,6 +115,10 @@ class AppController(QObject):
             "ocr.region": lambda: self.capture_region("ocr.region"),
             "app.open_editor": self.edit_last_capture,
             "app.open_history": self.show_history,
+            "record.video": lambda: self.recording.toggle("mp4"),
+            "record.gif": lambda: self.recording.toggle("gif"),
+            "record.pause": lambda: self.recording.toggle_pause(),
+            "record.zoom": lambda: self.recording.toggle_zoom(),
         }
         if register_hotkeys:
             self.register_hotkeys()
@@ -140,7 +149,13 @@ class AppController(QObject):
         if action:
             self.trigger(action)
 
-    POLICY_FEATURES = {"capture.scrolling": "scrolling", "capture.pin": "pin", "ocr.region": "ocr"}
+    POLICY_FEATURES = {
+        "capture.scrolling": "scrolling",
+        "capture.pin": "pin",
+        "ocr.region": "ocr",
+        "record.video": "recording",
+        "record.gif": "recording",
+    }
 
     def allowed(self, action: str) -> bool:
         feature = self.POLICY_FEATURES.get(action)
@@ -154,7 +169,7 @@ class AppController(QObject):
         if handler is None:
             log.warning("No handler for action %s", action)
             return
-        if action.startswith("capture."):
+        if action.startswith("capture.") or (action in ("record.video", "record.gif") and not self.recording.active):
             hidden = self.hide_chrome()
             if from_menu or hidden:
                 QTimer.singleShot(MENU_SETTLE_MS if from_menu else CHROME_SETTLE_MS, handler)
@@ -164,7 +179,12 @@ class AppController(QObject):
     @property
     def busy(self) -> bool:
         """A capture flow is in progress (selector, countdown or scrolling)."""
-        return self.selector.active or self._countdown is not None or self._scroll_indicator is not None
+        return (
+            self.selector.active
+            or self._countdown is not None
+            or self._scroll_indicator is not None
+            or self.recording.active
+        )
 
     def hide_chrome(self) -> bool:
         """Hide ScreenPilot's own floating UI so it never appears in a capture."""
@@ -289,6 +309,12 @@ class AppController(QObject):
             return
         if action == ACTION_INTERVAL:
             self.start_interval(rect)
+            return
+        if action in (ACTION_RECORD, ACTION_RECORD_GIF):
+            if not self.app.policy.allows("recording"):
+                self.notify.emit(self.t("app.name"), self.t("policy.feature_disabled"), True)
+                return
+            self.recording.start(rect, "gif" if action == ACTION_RECORD_GIF else "mp4")
             return
         try:
             result = self.app.capture.region_from_frozen(frozen, rect)
@@ -833,7 +859,9 @@ class AppController(QObject):
         return window
 
     def _on_event(self, event: Event) -> None:
-        if event.name == "editor.open_requested":
+        if event.name.startswith("recording."):
+            self.recording.on_event(event)
+        elif event.name == "editor.open_requested":
             self._not_available()
         elif event.name == "capture.scroll_progress" and self._scroll_indicator is not None:
             self._scroll_indicator.set_progress(event.payload["frames"], event.payload["height"])
@@ -912,6 +940,7 @@ class AppController(QObject):
     # -- lifecycle ------------------------------------------------------------
     def shutdown(self) -> None:
         log.info("Shutting down UI")
+        self.recording.shutdown()
         for window in list(self._windows.values()) + list(self.pins):
             window.close()
         if self.edge_bar is not None:

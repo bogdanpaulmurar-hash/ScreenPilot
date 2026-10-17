@@ -73,6 +73,8 @@ ACTION_OCR = "ocr"
 ACTION_COLOR = "color"
 ACTION_MEASURE = "measure"
 ACTION_INTERVAL = "interval"
+ACTION_RECORD = "record"
+ACTION_RECORD_GIF = "record_gif"
 
 HANDLE_CURSORS = {
     "nw": Qt.CursorShape.SizeFDiagCursor,
@@ -174,6 +176,7 @@ class ActionBar(QFrame):
             ("steps", "selector.action.steps", ACTION_STEPS, True),
             ("edit", "selector.action.edit", ACTION_EDIT, True),
             ("ocr", "selector.action.ocr", ACTION_OCR, True),
+            ("record", "selector.action.record", ACTION_RECORD, True),
             ("close", "selector.action.cancel", "cancel", True),
         )
         for icon_name, key, action, enabled in spec:
@@ -391,6 +394,8 @@ class MonitorOverlay(QWidget):
             self._confirm(ACTION_EDIT)
         elif key == Qt.Key.Key_T and not ctrl:
             self._confirm(ACTION_OCR)
+        elif key == Qt.Key.Key_R and not ctrl:
+            self._confirm(ACTION_RECORD)
         elif key in arrows:
             dx, dy = arrows[key]
             self.model.nudge(dx, dy, resize=resize)

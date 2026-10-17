@@ -42,6 +42,10 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "capture.interval": None,
     "procedure.toggle": "Ctrl+Shift+P",
     "app.open_history": "Ctrl+Shift+H",
+    "record.video": "Ctrl+Shift+9",
+    "record.gif": "Ctrl+Shift+8",
+    "record.pause": None,
+    "record.zoom": None,
 }
 
 # Combinations Windows reserves or commonly uses; value is an i18n reason key.

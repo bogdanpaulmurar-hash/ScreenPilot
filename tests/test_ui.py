@@ -672,7 +672,7 @@ class EdgeBarTests(UiTestCase):
         self.assertTrue(wait_until(lambda: bar.height() > 40))
         QTest.qWait(250)
         shot(bar, "18_edge_bar_expanded")
-        self.assertFalse(bar.buttons["video"].isEnabled())
+        self.assertTrue(bar.buttons["record.video"].isEnabled())
         QTest.mouseClick(bar.buttons["capture.region"], Qt.MouseButton.LeftButton)
         self.assertFalse(bar.isVisible())  # never in the capture
         self.assertTrue(wait_until(lambda: self.controller.selector.active))
@@ -768,11 +768,12 @@ class WindowsTests(UiTestCase):
         self.assertEqual(self.app.translator.language, "ro")
         self.controller.trigger("capture.window")
         self.assertTrue(wait_until(lambda: self.captured))
-        for index, name in enumerate(("general", "capture", "modes", "after_capture", "hotkeys", "diagnostics")):
+        for index, name in enumerate(("general", "capture", "modes", "after_capture", "recording", "hotkeys", "diagnostics")):
             dialog.tabs.setCurrentIndex(index)
             QApplication.processEvents()
             shot(dialog, f"14_settings_{name}_ro")
-        self.assertEqual(dialog.tabs.tabText(4), "Taste rapide")
+        self.assertEqual(dialog.tabs.tabText(4), "Înregistrare")
+        self.assertEqual(dialog.tabs.tabText(5), "Taste rapide")
         self.assertGreater(dialog.timing_table.rowCount(), 0)
 
         dialog.theme_combo.setCurrentIndex(dialog.theme_combo.findData("dark"))
@@ -831,6 +832,103 @@ class WindowsTests(UiTestCase):
         QApplication.processEvents()
         self.assertTrue(self.app.settings.get("general.first_run_completed"))
         self.assertIn("hub", self.controller._windows)
+
+
+class RecordingUiTests(UiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.app.settings.set("recording.countdown", 0)
+        self.app.settings.set("recording.gif_fps", 10)
+        self.rec = self.controller.recording
+
+    def wait_result(self):
+        self.assertTrue(wait_until(lambda: self.rec.result_card is not None, timeout=20), self.notes)
+        return self.rec.result_card
+
+    def test_record_gif_from_selector_with_pause_zoom_and_result_card(self):
+        self.controller.trigger("record.gif")
+        overlay = self.controller.selector.overlays[0]
+        QTest.qWaitForWindowExposed(overlay)
+        shot(overlay, "40_record_selector")
+        self.select(overlay, QPoint(40, 40), QPoint(439, 279))
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+        self.assertTrue(self.controller.busy)
+        bar, frame = self.rec.bar, self.rec.frame
+        self.assertTrue(bar.isVisible() and frame.isVisible())
+        QTest.qWait(300)
+        shot(bar, "41_recording_bar")
+        QTest.mouseClick(bar.buttons["pause"], Qt.MouseButton.LeftButton)
+        self.assertTrue(wait_until(lambda: self.rec.recorder.state.value == "paused"))
+        QTest.qWait(300)
+        shot(bar, "42_recording_bar_paused")
+        QTest.mouseClick(bar.buttons["pause"], Qt.MouseButton.LeftButton)
+        self.assertTrue(wait_until(lambda: self.rec.recorder.state.value == "recording"))
+        QTest.mouseClick(bar.buttons["zoom"], Qt.MouseButton.LeftButton)
+        self.assertTrue(self.rec.recorder.effects.zoom_on)
+        QTest.qWait(300)
+        self.controller.trigger("record.gif")  # the same hotkey stops
+        card = self.wait_result()
+        shot(card, "43_recording_saved")
+        self.assertTrue(card.result.path.exists())
+        self.assertEqual(card.result.path.suffix, ".gif")
+        self.assertEqual(card.result.rect.width, 400)
+        self.assertNotIn("gif", card.buttons)  # already a GIF
+        self.assertIsNone(self.rec.bar)
+        self.assertFalse(self.controller.busy)
+        self.assertFalse([n for n in self.notes if n[2]])
+
+    def test_mp4_without_ffmpeg_falls_back_to_gif(self):
+        self.app.recording.ffmpeg = lambda refresh=False: None
+        self.assertTrue(self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "mp4"))
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+        self.assertTrue(self.rec.recorder.options.is_gif)
+        self.assertIn(self.app.translator.t("recording.no_ffmpeg.title"), [n[0] for n in self.notes])
+        self.rec.stop()
+        self.assertEqual(self.wait_result().result.format, "gif")
+
+    def test_countdown_can_be_cancelled_and_cancel_discards(self):
+        self.app.settings.set("recording.countdown", 3)
+        self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "gif")
+        self.assertTrue(self.rec.active)
+        self.assertIsNotNone(self.rec.frame)
+        shot(self.rec.frame, "44_recording_frame_waiting")
+        self.rec.cancel()
+        self.assertTrue(wait_until(lambda: not self.rec.active))
+        self.assertIsNone(self.rec.frame)
+        self.assertFalse(self.app.recording.busy)
+
+        self.app.settings.set("recording.countdown", 0)
+        self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "gif")
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+        QTest.qWait(200)
+        self.rec.cancel()
+        self.assertTrue(wait_until(lambda: not self.rec.active, timeout=10))
+        self.assertIsNone(self.rec.result_card)
+        self.assertEqual(list(self.app.recording.output_dir().glob("*.gif")), [])
+
+    def test_policy_blocks_recording_everywhere(self):
+        from screenpilot.core.policy import Policy
+
+        self.app.policy = Policy(disabled=frozenset({"recording"}))
+        self.app.recording.policy = self.app.policy
+        self.controller.trigger("record.video")
+        self.assertFalse(self.controller.selector.active)
+        self.assertIn(self.app.translator.t("policy.feature_disabled"), [n[1] for n in self.notes])
+        self.assertFalse(self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "gif"))
+
+    def test_hub_and_settings_expose_recording(self):
+        hub = self.controller.show_hub()
+        self.assertIn("record.video", hub.tiles)
+        self.assertIn("record.gif", hub.tiles)
+        shot(hub, "45_hub_with_video")
+        hub.close()
+        dialog = self.controller.show_settings()
+        dialog.tabs.setCurrentIndex(4)
+        QApplication.processEvents()
+        shot(dialog, "46_settings_recording_en")
+        self.assertIn("FFmpeg", dialog.ffmpeg_status.text())
+        dialog.close()
 
 
 if __name__ == "__main__":

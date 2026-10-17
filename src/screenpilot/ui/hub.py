@@ -44,7 +44,8 @@ TILES = (
     ("monitors", "hub.mode.all", "capture.all_monitors", False),
     ("scroll", "hub.mode.scrolling", "capture.scrolling", False),
     ("procedure", "hub.mode.procedure", "procedure.toggle", False),
-    ("video", "hub.mode.video", None, True),
+    ("video", "hub.mode.video", "record.video", False),
+    ("film", "hub.mode.gif", "record.gif", False),
 )
 
 
@@ -215,6 +216,9 @@ class CaptureHub(QWidget):
     # -- capture --------------------------------------------------------------
     def start_capture(self, action: str) -> None:
         """Hide the hub so it is not in the picture, then capture (optionally delayed)."""
+        if not self.controller.allowed(action):
+            self.controller.notify.emit(self.t("app.name"), self.t("policy.feature_disabled"), True)
+            return
         self.hide()
         if action == "procedure.toggle":
             self.controller.toggle_procedure()

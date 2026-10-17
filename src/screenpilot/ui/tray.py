@@ -52,6 +52,20 @@ class TrayIcon(QSystemTrayIcon):
             delayed.addAction(action)
         menu.addMenu(delayed)
 
+        if self.app.policy.allows("recording"):
+            menu.addSeparator()
+            for action_id in ("record.video", "record.gif"):
+                action = QAction(menu)
+                action.triggered.connect(lambda _=False, a=action_id: controller.trigger(a, from_menu=True))
+                action.setData(action_id)
+                menu.addAction(action)
+                self._shortcut_actions.append(action)
+        self.stop_recording_action = QAction(menu)
+        self.stop_recording_action.triggered.connect(controller.recording.stop)
+        self.stop_recording_action.setVisible(False)
+        menu.addAction(self.stop_recording_action)
+        controller.recording.changed.connect(self._refresh_recording)
+
         tools = QMenu(menu)
         rt.bind(tools.setTitle, "tray.menu.tools")
         for action_id in ("procedure.toggle", "tools.color", "tools.measure", "capture.interval", "capture.edit", "capture.steps", "ocr.region"):
@@ -136,6 +150,12 @@ class TrayIcon(QSystemTrayIcon):
 
     def refresh(self) -> None:
         self._refresh()
+
+    def _refresh_recording(self) -> None:
+        recording = self.controller.recording.recording
+        self.stop_recording_action.setVisible(recording)
+        if recording:
+            self.stop_recording_action.setText(self.app.translator.t("recording.stop"))
 
     def _refresh_interval(self) -> None:
         state = getattr(self.controller, "interval", None)

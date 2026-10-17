@@ -92,6 +92,7 @@ class SettingsDialog(QDialog):
             ("region", "settings.nav.capture", self._build_capture),
             ("sparkle", "settings.nav.modes", self._build_modes),
             ("workflow", "settings.nav.after_capture", self._build_after_capture),
+            ("video", "settings.nav.recording", self._build_recording),
             ("keyboard", "settings.nav.hotkeys", self._build_hotkeys),
             ("settings", "settings.nav.diagnostics", self._build_diagnostics),
         ):
@@ -640,6 +641,188 @@ class SettingsDialog(QDialog):
         self._refresh_modes()
 
     # -- diagnostics ------------------------------------------------------------
+    # -- recording ------------------------------------------------------------
+    QUALITY_PRESETS = (("high", 18), ("balanced", 23), ("small", 28))
+
+    def _combo(self, key: str, items: list[tuple[str, object]], *, tr_prefix: str | None = None) -> QComboBox:
+        combo = QComboBox()
+        combo.setMinimumWidth(180)
+        for text, data in items:
+            combo.addItem(text, data)
+
+        def retranslate() -> None:
+            if tr_prefix:
+                for i in range(combo.count()):
+                    combo.setItemText(i, self.t(f"{tr_prefix}.{combo.itemData(i)}"))
+
+        retranslate()
+        self.rt.on_change(retranslate)
+        index = combo.findData(self.settings.get(key))
+        combo.setCurrentIndex(max(0, index))
+        combo.currentIndexChanged.connect(lambda _i: self._set(key, combo.currentData()))
+        return self._lock(combo, key)
+
+    def _spin(self, key: str, low: int, high: int, suffix_key: str | None = None, step: int = 1) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(low, high)
+        spin.setSingleStep(step)
+        spin.setValue(int(self.settings.get(key)))
+        if suffix_key:
+            self.rt.bind(spin.setSuffix, suffix_key)
+        spin.valueChanged.connect(lambda v: self._set(key, v))
+        return self._lock(spin, key)
+
+    def _path_card(self, icon_name: str, title_key: str, desc_key: str, key: str, placeholder: str, *, pick_file: bool) -> tuple[Card, QLineEdit]:
+        card = Card(padding=16, spacing=8)
+        head = SettingRow(icon_name)
+        head.setProperty("card", False)
+        head.layout().setContentsMargins(0, 0, 0, 0)
+        self.rt.bind(head.title.setText, title_key)
+        self.rt.bind(head.description.setText, desc_key)
+        card.body.addWidget(head)
+        row = QHBoxLayout()
+        edit = QLineEdit(self.settings.get(key) or "")
+        edit.setPlaceholderText(placeholder)
+        edit.editingFinished.connect(lambda: self._set(key, edit.text().strip()))
+        browse = QPushButton()
+        self.rt.bind(browse.setText, "settings.browse")
+
+        def choose() -> None:
+            if pick_file:
+                path, _ = QFileDialog.getOpenFileName(self, self.t(title_key), edit.text() or "", "ffmpeg (ffmpeg.exe ffmpeg);;*.*")
+            else:
+                path = QFileDialog.getExistingDirectory(self, self.t(title_key), edit.text() or placeholder)
+            if path:
+                edit.setText(path)
+                self._set(key, path)
+
+        browse.clicked.connect(choose)
+        row.addWidget(edit, 1)
+        row.addWidget(browse)
+        self._lock(edit, key)
+        self._lock(browse, key)
+        card.body.addLayout(row)
+        return card, edit
+
+    def _build_recording(self) -> QWidget:
+        page, column = self._column()
+        service = self.app.recording
+
+        column.addWidget(
+            self._row("video", "settings.rec.format", "settings.rec.format.desc",
+                      self._combo("recording.format", [("", "mp4"), ("", "gif")], tr_prefix="settings.rec.format"))
+        )
+        column.addWidget(self._row("timer", "settings.rec.fps", None, self._spin("recording.fps", 5, 60, "settings.rec.fps_suffix")))
+        self.rec_quality = QComboBox()
+        for name, value in self.QUALITY_PRESETS:
+            self.rec_quality.addItem("", value)
+
+        def retranslate_quality() -> None:
+            for i, (name, _v) in enumerate(self.QUALITY_PRESETS):
+                self.rec_quality.setItemText(i, self.t(f"settings.rec.quality.{name}"))
+
+        retranslate_quality()
+        self.rt.on_change(retranslate_quality)
+        current = int(self.settings.get("recording.quality"))
+        self.rec_quality.setCurrentIndex(min(range(3), key=lambda i: abs(self.QUALITY_PRESETS[i][1] - current)))
+        self.rec_quality.currentIndexChanged.connect(lambda _i: self._set("recording.quality", self.rec_quality.currentData()))
+        self._lock(self.rec_quality, "recording.quality")
+        column.addWidget(self._row("image", "settings.rec.quality", "settings.rec.quality.desc", self.rec_quality))
+        column.addWidget(
+            self._row("sparkle", "settings.rec.encoder", "settings.rec.encoder.desc",
+                      self._combo("recording.encoder", [("", "auto"), ("", "hardware"), ("", "software")], tr_prefix="settings.rec.encoder"))
+        )
+
+        audio_title = label(role="subtitle")
+        self.rt.bind(audio_title.setText, "settings.rec.audio")
+        column.addSpacing(8)
+        column.addWidget(audio_title)
+        audio_allowed = self.app.policy.allows("record_audio")
+        self.rec_mic = QComboBox()
+        self.rec_system = QComboBox()
+        for combo, key in ((self.rec_mic, "recording.microphone"), (self.rec_system, "recording.system_audio")):
+            combo.setMinimumWidth(240)
+            combo.addItem(self.t("settings.rec.audio.none"), "")
+            saved = self.settings.get(key) or ""
+            if saved:
+                combo.addItem(saved, saved)
+                combo.setCurrentIndex(1)
+            combo.currentIndexChanged.connect(lambda _i, c=combo, k=key: self._set(k, c.currentData()))
+            self._lock(combo, key)
+            if not audio_allowed:
+                combo.setEnabled(False)
+                combo.setToolTip(self.t("policy.feature_disabled"))
+        column.addWidget(self._row("mic", "settings.rec.microphone", None, self.rec_mic))
+        column.addWidget(self._row("video", "settings.rec.system_audio", "settings.rec.system_audio.desc", self.rec_system))
+        detect = QPushButton()
+        self.rt.bind(detect.setText, "settings.rec.detect_devices")
+        detect.clicked.connect(self._detect_audio_devices)
+        detect.setEnabled(audio_allowed)
+        column.addWidget(self._row("search", "settings.rec.devices", "settings.rec.devices.desc", detect))
+
+        fx_title = label(role="subtitle")
+        self.rt.bind(fx_title.setText, "settings.rec.effects")
+        column.addSpacing(8)
+        column.addWidget(fx_title)
+        column.addWidget(self._row("cursor", "settings.rec.show_cursor", None, self._toggle("recording.show_cursor")))
+        column.addWidget(self._row("spotlight", "settings.rec.highlight", "settings.rec.highlight.desc", self._toggle("recording.highlight_cursor")))
+        column.addWidget(self._row("select", "settings.rec.clicks", "settings.rec.clicks.desc", self._toggle("recording.click_effects")))
+        column.addWidget(self._row("timer", "settings.rec.countdown", None, self._spin("recording.countdown", 0, 10, "settings.seconds_suffix")))
+        column.addWidget(self._row("history", "settings.rec.max_minutes", None, self._spin("recording.max_minutes", 1, 240, "settings.rec.minutes_suffix")))
+
+        gif_title = label(role="subtitle")
+        self.rt.bind(gif_title.setText, "settings.rec.gif")
+        column.addSpacing(8)
+        column.addWidget(gif_title)
+        column.addWidget(self._row("film", "settings.rec.gif_fps", None, self._spin("recording.gif_fps", 5, 30, "settings.rec.fps_suffix")))
+        column.addWidget(self._row("image", "settings.rec.gif_width", None, self._spin("recording.gif_max_width", 320, 1920, "settings.rec.px_suffix", step=80)))
+
+        column.addSpacing(8)
+        folder_card, _ = self._path_card(
+            "folder", "settings.rec.output_dir", "settings.rec.output_dir.desc", "recording.output_dir",
+            str(service.default_dir()), pick_file=False,
+        )
+        column.addWidget(folder_card)
+        column.addWidget(self._row("folder", "settings.rec.open_folder", None, self._toggle("recording.open_folder_after")))
+        ffmpeg_card, self.ffmpeg_edit = self._path_card(
+            "settings", "settings.rec.ffmpeg", "settings.rec.ffmpeg.desc", "recording.ffmpeg_path", "ffmpeg.exe", pick_file=True,
+        )
+        self.ffmpeg_status = label(role="caption", wrap=True)
+        ffmpeg_card.body.addWidget(self.ffmpeg_status)
+        check = QPushButton()
+        self.rt.bind(check.setText, "settings.rec.ffmpeg.check")
+        check.clicked.connect(lambda: self._refresh_ffmpeg_status(refresh=True))
+        ffmpeg_card.body.addWidget(check, 0, Qt.AlignmentFlag.AlignLeft)
+        column.addWidget(ffmpeg_card)
+        column.addStretch(1)
+        self.ffmpeg_edit.editingFinished.connect(lambda: self._refresh_ffmpeg_status(refresh=True))
+        self._refresh_ffmpeg_status()
+        self.rt.on_change(self._refresh_ffmpeg_status)
+        return page
+
+    def _refresh_ffmpeg_status(self, refresh: bool = False) -> None:
+        info = self.app.recording.ffmpeg(refresh=refresh)
+        if info is None:
+            self.ffmpeg_status.setText(self.t("settings.rec.ffmpeg.missing"))
+        else:
+            self.ffmpeg_status.setText(self.t("settings.rec.ffmpeg.found", version=info.version, path=str(info.path)))
+
+    def _detect_audio_devices(self) -> None:
+        devices = self.app.recording.audio_devices()
+        for combo in (self.rec_mic, self.rec_system):
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(self.t("settings.rec.audio.none"), "")
+            for name in devices:
+                combo.addItem(name, name)
+            if current and combo.findData(current) < 0:
+                combo.addItem(current, current)
+            combo.setCurrentIndex(max(0, combo.findData(current)))
+            combo.blockSignals(False)
+        if not devices:
+            self.controller.notify.emit(self.t("settings.rec.devices"), self.t("settings.rec.devices.none"), False)
+
     def _build_diagnostics(self) -> QWidget:
         page, column = self._column()
         self._diag_page = None  # set by _page() wrapper below
