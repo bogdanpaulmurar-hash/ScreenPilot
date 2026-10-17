@@ -434,7 +434,7 @@ class ToolsTests(UiTestCase):
         self.assertTrue(wait_until(lambda: self.controller.selector.active))
         overlay = self.controller.selector.overlays[0]
         erp = self.window.bounds
-        approve = QPoint(erp.right - self.screen_rect.x - 60, erp.bottom - self.screen_rect.y - 30)
+        approve = QPoint(erp.right - self.screen_rect.x - 30, erp.bottom - self.screen_rect.y - 21)
         QTest.mouseMove(overlay, approve)
         shot(overlay, "28_colour_picker")
         QTest.mouseClick(overlay, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, approve)
