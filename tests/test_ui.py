@@ -504,11 +504,14 @@ class WindowsTests(UiTestCase):
         dialog.language.setCurrentIndex(dialog.language.findData("ro"))
         self.assertEqual(dialog.windowTitle(), "Setări")
         self.assertEqual(self.app.translator.language, "ro")
-        for index, name in enumerate(("general", "capture", "after_capture", "hotkeys")):
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: self.captured))
+        for index, name in enumerate(("general", "capture", "after_capture", "hotkeys", "diagnostics")):
             dialog.tabs.setCurrentIndex(index)
             QApplication.processEvents()
             shot(dialog, f"14_settings_{name}_ro")
         self.assertEqual(dialog.tabs.tabText(3), "Taste rapide")
+        self.assertGreater(dialog.timing_table.rowCount(), 0)
 
         dialog.theme_combo.setCurrentIndex(dialog.theme_combo.findData("dark"))
         self.assertEqual(self.app.settings.get("general.theme"), "dark")

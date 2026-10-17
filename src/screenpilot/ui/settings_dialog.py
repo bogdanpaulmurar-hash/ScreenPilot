@@ -92,6 +92,7 @@ class SettingsDialog(QDialog):
             ("region", "settings.nav.capture", self._build_capture),
             ("workflow", "settings.nav.after_capture", self._build_after_capture),
             ("keyboard", "settings.nav.hotkeys", self._build_hotkeys),
+            ("sparkle", "settings.nav.diagnostics", self._build_diagnostics),
         ):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, icon_name)
@@ -452,6 +453,69 @@ class SettingsDialog(QDialog):
         self._fill_hotkeys()
         self.rt.on_change(self._fill_hotkeys)
         return page
+
+    # -- diagnostics ------------------------------------------------------------
+    def _build_diagnostics(self) -> QWidget:
+        page, column = self._column()
+        column.addWidget(
+            self._row("edit", "diag.verbose", "diag.verbose.desc", self._toggle("diagnostics.verbose_logging"))
+        )
+        export = QPushButton()
+        export.setProperty("accent", True)
+        self.rt.bind(export.setText, "diag.export")
+        export.clicked.connect(self.controller.export_diagnostics)
+        column.addWidget(self._row("folder", "diag.export", "diag.export.desc", export))
+
+        card = Card(padding=16, spacing=8)
+        head = QHBoxLayout()
+        title = label(role="subtitle")
+        self.rt.bind(title.setText, "diag.timings")
+        head.addWidget(title, 1)
+        refresh = QPushButton()
+        self.rt.bind(refresh.setText, "diag.refresh")
+        refresh.clicked.connect(self._fill_timings)
+        logs = QPushButton()
+        self.rt.bind(logs.setText, "diag.open_logs")
+        logs.clicked.connect(self.controller.open_log_folder)
+        head.addWidget(refresh)
+        head.addWidget(logs)
+        card.body.addLayout(head)
+        desc = label(role="caption")
+        self.rt.bind(desc.setText, "diag.timings.desc")
+        card.body.addWidget(desc)
+        self.timing_table = QTableWidget(0, 6)
+        self.timing_table.verticalHeader().setVisible(False)
+        self.timing_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.timing_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.timing_table.setMinimumHeight(220)
+        card.body.addWidget(self.timing_table)
+        self.timing_empty = label(role="secondary")
+        self.rt.bind(self.timing_empty.setText, "diag.empty")
+        card.body.addWidget(self.timing_empty)
+        column.addWidget(card)
+        column.addStretch(1)
+        self._fill_timings()
+        self.rt.on_change(self._fill_timings)
+        self.nav.currentRowChanged.connect(lambda row: self._fill_timings() if row == 4 else None)
+        return page
+
+    def _fill_timings(self) -> None:
+        summary = self.app.diagnostics.summary()
+        self.timing_table.setHorizontalHeaderLabels(
+            [self.t(f"diag.col.{c}") for c in ("operation", "count", "last", "median", "p95", "max")]
+        )
+        self.timing_table.setRowCount(len(summary))
+        for row, (name, stats) in enumerate(summary.items()):
+            key = f"diag.op.{name}"
+            label_text = self.t(key) if self.app.translator.has(key) else name
+            self.timing_table.setItem(row, 0, QTableWidgetItem(label_text))
+            self.timing_table.setItem(row, 1, QTableWidgetItem(str(stats["count"])))
+            for col, field in enumerate(("last", "median", "p95", "max"), start=2):
+                item = QTableWidgetItem(f"{stats[field]:.0f} ms")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.timing_table.setItem(row, col, item)
+        self.timing_table.setVisible(bool(summary))
+        self.timing_empty.setVisible(not summary)
 
     def _selected_action(self) -> str | None:
         rows = self.hotkey_table.selectionModel().selectedRows() if self.hotkey_table.selectionModel() else []

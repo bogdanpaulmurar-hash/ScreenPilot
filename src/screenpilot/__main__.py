@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("monitors")
     sub.add_parser("windows")
     sub.add_parser("hotkeys")
+    diag = sub.add_parser("diagnostics", help="export a diagnostic .zip (logs, timings, settings)")
+    diag.add_argument("--out", type=Path, default=Path("screenpilot-diagnostics.zip"))
 
     cap = sub.add_parser("capture")
     cap.add_argument("mode", choices=CAPTURE_MODES)
@@ -113,6 +115,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(t("cli.hotkeys.header"))
             for action, hotkey in app.hotkeys.bindings().items():
                 print("  " + t("cli.hotkeys.row", hotkey=hotkey or "-", action=t(f"action.{action}")))
+        elif args.command == "diagnostics":
+            app.capture.freeze()  # one measured capture so the bundle has timings
+            print(app.export_diagnostics(args.out))
         elif args.command == "capture":
             result = _do_capture(app, args)
             if result is None:

@@ -10,6 +10,9 @@ log = logging.getLogger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    import time
+
+    started = time.perf_counter()
     try:
         from PySide6.QtCore import QLockFile
         from PySide6.QtWidgets import QApplication, QMessageBox
@@ -29,6 +32,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     qt_app.setWindowIcon(app_icon())
 
     app = create_app()
+    app.diagnostics.install_crash_handlers()
+    _install_qt_message_handler(app)
 
     from screenpilot.ui.theme import ThemeManager
     from screenpilot.ui.widgets import set_theme_manager
@@ -61,8 +66,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif not app.settings.get("general.start_minimized"):
         controller.show_hub()
 
+    app.diagnostics.record("app.startup", (time.perf_counter() - started) * 1000)
     log.info("Desktop UI ready")
     return qt_app.exec()
+
+
+def _install_qt_message_handler(app) -> None:
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+    qt_log = logging.getLogger("screenpilot.qt")
+    levels = {
+        QtMsgType.QtDebugMsg: logging.DEBUG,
+        QtMsgType.QtInfoMsg: logging.INFO,
+        QtMsgType.QtWarningMsg: logging.WARNING,
+        QtMsgType.QtCriticalMsg: logging.ERROR,
+        QtMsgType.QtFatalMsg: logging.CRITICAL,
+    }
+
+    def handler(mode, context, message) -> None:
+        where = f"{context.file}:{context.line}" if context.file else ""
+        qt_log.log(levels.get(mode, logging.WARNING), "%s %s", message, where)
+        if mode in (QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+            app.diagnostics.write_crash("Qt critical message", f"{message} {where}")
+
+    qInstallMessageHandler(handler)
 
 
 if __name__ == "__main__":

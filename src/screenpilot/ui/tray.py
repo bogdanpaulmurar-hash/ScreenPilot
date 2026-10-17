@@ -79,6 +79,7 @@ class TrayIcon(QSystemTrayIcon):
         for key, slot in (
             ("tray.menu.settings", controller.show_settings),
             ("tray.menu.getting_started", controller.show_wizard),
+            ("tray.menu.diagnostics", controller.export_diagnostics),
             ("tray.menu.about", self.show_about),
         ):
             action = QAction(menu)

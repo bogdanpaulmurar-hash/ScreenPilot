@@ -58,6 +58,10 @@ DEFAULTS: dict[str, Any] = {
     "history": {
         "limit": 100,
     },
+    "diagnostics": {
+        "verbose_logging": False,
+        "timings": True,
+    },
     "privacy": {
         "telemetry": False,
         "allow_network": False,

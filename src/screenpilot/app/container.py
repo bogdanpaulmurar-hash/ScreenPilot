@@ -20,7 +20,9 @@ from typing import Callable
 from screenpilot import __version__
 from screenpilot.capture import CaptureBackend, CaptureResult, CaptureService, default_backend
 from screenpilot.core.events import EventBus
-from screenpilot.core.logging_setup import close_logging, configure_logging
+from screenpilot.core import diagnostics as diag_mod
+from screenpilot.core.diagnostics import Diagnostics
+from screenpilot.core.logging_setup import close_logging, configure_logging, set_level
 from screenpilot.core.paths import AppPaths, resolve_paths
 from screenpilot.core.services import ServiceRegistry
 from screenpilot.history import CaptureHistory
@@ -45,6 +47,7 @@ class ScreenPilotApp:
     clipboard: Clipboard
     shell: Shell
     history: CaptureHistory
+    diagnostics: Diagnostics = field(default_factory=lambda: Diagnostics(None))
     services: ServiceRegistry = field(default_factory=ServiceRegistry)
 
     @property
@@ -83,7 +86,30 @@ class ScreenPilotApp:
         except OSError:
             log.exception("Could not persist state on shutdown")
         log.info("ScreenPilot stopped")
+        self.diagnostics.close()
         close_logging()
+
+    def export_diagnostics(self, target: Path) -> Path:
+        settings = self.settings.as_dict()
+        return diag_mod.export_bundle(
+            target,
+            log_dir=self.paths.log_dir,
+            settings=settings,
+            diagnostics=self.diagnostics,
+            extra={
+                "monitors": [str(m) for m in self._safe_monitors()],
+                "hotkeys": {a: str(h) if h else None for a, h in self.hotkeys.bindings().items()},
+                "hotkey_status": {a: s.value for a, s in self.hotkeys.diagnostics().items()},
+                "backend": getattr(self.capture.backend, "name", "?"),
+                "dpi_mode": getattr(self.capture.backend, "dpi_mode", None),
+            },
+        )
+
+    def _safe_monitors(self):
+        try:
+            return self.capture.monitors()
+        except Exception:  # noqa: BLE001
+            return []
 
 
 def create_app(
@@ -99,7 +125,16 @@ def create_app(
     configure_logging(paths.log_dir, console=console_log)
     log.info("ScreenPilot %s starting (portable=%s)", __version__, paths.portable)
 
+    diagnostics = Diagnostics(paths.log_dir)
+    diag_mod.set_current(diagnostics)
     settings = Settings(paths.settings_file).load()
+    if settings.get("diagnostics.verbose_logging"):
+        set_level(logging.DEBUG)
+    settings.add_listener(
+        lambda key, value: set_level(logging.DEBUG if value else logging.INFO)
+        if key == "diagnostics.verbose_logging"
+        else None
+    )
     translator = Translator(language or settings.get("general.language"))
     # Keep the UI language in sync with the setting, live.
     settings.add_listener(lambda key, value: translator.set_language(value) if key == "general.language" else None)
@@ -120,6 +155,7 @@ def create_app(
         clipboard=clipboard or default_clipboard(),
         shell=shell or DefaultShell(),
         history=CaptureHistory(paths.data_dir, limit=settings.get("history.limit")).load(),
+        diagnostics=diagnostics,
     )
     app.history.attach(bus)
     settings.add_listener(lambda key, value: app.history.set_limit(value) if key == "history.limit" else None)

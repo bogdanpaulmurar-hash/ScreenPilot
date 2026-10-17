@@ -16,6 +16,7 @@ from typing import Any, Callable
 from screenpilot.capture.backend import CaptureBackend
 from screenpilot.capture.geometry import Monitor, Point, Rect, VirtualDesktop, WindowInfo
 from screenpilot.capture.image import CaptureResult
+from screenpilot.core import diagnostics
 from screenpilot.core.errors import CaptureError
 from screenpilot.core.events import EventBus
 
@@ -108,8 +109,9 @@ class CaptureService:
         was on screen when they pressed the hotkey (open menus, tooltips...).
         """
         desktop = self.desktop()
-        with self._lock:
-            image = self.backend.grab(desktop.bounds)
+        with diagnostics.timed("capture.freeze", width=desktop.bounds.width, height=desktop.bounds.height):
+            with self._lock:
+                image = self.backend.grab(desktop.bounds)
         return CaptureResult(image=image, mode="frozen", region=desktop.bounds, metadata={"backend": self.backend.name})
 
     def region_from_frozen(self, frozen: CaptureResult, rect: Rect, *, mode: str = MODE_REGION, **metadata: Any) -> CaptureResult:
@@ -235,6 +237,7 @@ class CaptureService:
             self.bus.publish(EVENT_FAILED, mode=mode, error=exc)
             raise CaptureError(f"Unexpected capture failure: {exc}") from exc
         elapsed_ms = (time.perf_counter() - started) * 1000
+        diagnostics.current().record("capture.grab", elapsed_ms, mode=mode, width=rect.width, height=rect.height)
         log.info("Captured %s %dx%d at %s in %.1f ms", mode, rect.width, rect.height, rect, elapsed_ms)
         metadata.setdefault("backend", self.backend.name)
         metadata["elapsed_ms"] = round(elapsed_ms, 1)

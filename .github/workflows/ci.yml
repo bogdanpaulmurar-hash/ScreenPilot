@@ -49,6 +49,7 @@ jobs:
           python -m screenpilot --lang ro hotkeys
           python -m screenpilot capture all --out smoke/all.png
           python -m screenpilot capture region --rect 0,0,320,200 --out smoke/region.png
+          python -m screenpilot diagnostics --out smoke/diagnostics.zip
       - name: Upload smoke captures
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

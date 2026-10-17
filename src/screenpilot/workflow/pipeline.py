@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterable
 
+from screenpilot.core import diagnostics
 from screenpilot.core.errors import WorkflowError
 from screenpilot.workflow.actions import Action, ActionSkipped, WorkflowContext, builtin_actions
 
@@ -54,6 +55,10 @@ class Workflow:
         self.stop_on_error = stop_on_error
 
     def run(self, ctx: WorkflowContext, registry: ActionRegistry) -> list[StepResult]:
+        with diagnostics.timed("workflow.run", steps=len(self.steps)):
+            return self._run(ctx, registry)
+
+    def _run(self, ctx: WorkflowContext, registry: ActionRegistry) -> list[StepResult]:
         results: list[StepResult] = []
         for step in self.steps:
             action_id = step["id"]
@@ -66,7 +71,8 @@ class Workflow:
                     break
                 continue
             try:
-                action.run(ctx, params)
+                with diagnostics.timed(f"action.{action_id}"):
+                    action.run(ctx, params)
                 results.append(StepResult(action_id, StepStatus.OK))
             except ActionSkipped as skip:
                 results.append(StepResult(action_id, StepStatus.SKIPPED, str(skip)))

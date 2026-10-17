@@ -183,7 +183,10 @@ class FrameFinder:
 
     def __init__(self, image: CapturedImage, origin: Point) -> None:
         self.origin = origin
-        self.detector = EdgeDetector(image)
+        from screenpilot.core import diagnostics
+
+        with diagnostics.timed("detect.build", width=image.width, height=image.height):
+            self.detector = EdgeDetector(image)
 
     def boxes_at(self, p: Point) -> list[Rect]:
         local = Point(p.x - self.origin.x, p.y - self.origin.y)

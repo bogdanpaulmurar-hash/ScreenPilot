@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -156,6 +157,7 @@ class AppController(QObject):
     def capture_region(self) -> None:
         if self.selector.active:
             return
+        self._selector_started = time.perf_counter()
         try:
             frozen = self.app.capture.freeze()
             windows = self.app.capture.windows()
@@ -164,6 +166,13 @@ class AppController(QObject):
             self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
             return
         self.selector.start(frozen, monitors, windows, self._frame_provider(frozen))
+        QTimer.singleShot(0, self._selector_shown)
+
+    def _selector_shown(self) -> None:
+        started = getattr(self, "_selector_started", None)
+        if started is not None and self.selector.active:
+            self.app.diagnostics.record("selector.open", (time.perf_counter() - started) * 1000)
+        self._selector_started = None
 
     def _frame_provider(self, frozen: CaptureResult):
         """Inner frames under the cursor: detected boxes in the image + child controls."""
@@ -261,7 +270,9 @@ class AppController(QObject):
 
         def run() -> None:
             try:
-                result, reason = self.app.capture.capture_scrolling(rect, scroller, **options)
+                with self.app.diagnostics.timed("scroll.capture") as info:
+                    result, reason = self.app.capture.capture_scrolling(rect, scroller, **options)
+                    info.update(reason=reason, height=result.image.height)
             except Exception as exc:  # noqa: BLE001
                 log.exception("Scrolling capture failed")
                 self.scroll_finished.emit(None, str(exc), scroller)
@@ -477,6 +488,31 @@ class AppController(QObject):
         from screenpilot.ui.wizard import FirstRunWizard
 
         return self._show_single("wizard", lambda: FirstRunWizard(self))
+
+    def export_diagnostics(self) -> Path | None:
+        from datetime import datetime
+
+        suggested = Path.home() / "Desktop" / f"ScreenPilot-diagnostics-{datetime.now():%Y%m%d-%H%M}.zip"
+        path, _ = QFileDialog.getSaveFileName(None, self.t("diag.export"), str(suggested), "ZIP (*.zip)")
+        if not path:
+            return None
+        try:
+            target = self.app.export_diagnostics(Path(path))
+        except OSError as exc:
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            return None
+        self.notify.emit(self.t("diag.export"), self.t("diag.exported", path=target), False)
+        try:
+            self.app.shell.reveal(target)
+        except OSError:
+            pass
+        return target
+
+    def open_log_folder(self) -> None:
+        try:
+            self.app.shell.reveal(self.app.paths.log_dir)
+        except OSError:
+            log.exception("Could not open log folder")
 
     def open_captures_folder(self) -> None:
         folder = self.app.output_dir
