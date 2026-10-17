@@ -316,7 +316,8 @@ class EditorTests(UiTestCase):
         QApplication.processEvents()
         return editor
 
-    def _drag(self, canvas, a, b, modifier=Qt.KeyboardModifier.NoModifier):
+    def _drag(self, canvas, a, b, modifier=None):
+        modifier = modifier if modifier is not None else Qt.KeyboardModifier.NoModifier
         t, s = canvas.target(), canvas.scale
         pa = QPoint(round(t.left() + a[0] * s), round(t.top() + a[1] * s))
         pb = QPoint(round(t.left() + b[0] * s), round(t.top() + b[1] * s))
