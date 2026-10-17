@@ -43,6 +43,7 @@ TILES = (
     ("monitor", "hub.mode.screen", "capture.fullscreen", False),
     ("monitors", "hub.mode.all", "capture.all_monitors", False),
     ("scroll", "hub.mode.scrolling", "capture.scrolling", False),
+    ("procedure", "hub.mode.procedure", "procedure.toggle", False),
     ("video", "hub.mode.video", None, True),
 )
 
@@ -60,7 +61,7 @@ class CaptureHub(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowIcon(app_icon())
         self.setWindowTitle("ScreenPilot")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(640)
         self.delay = 0
 
         root = QVBoxLayout(self)
@@ -103,7 +104,7 @@ class CaptureHub(QWidget):
             else:
                 tile.clicked.connect(lambda _=False, a=action: self.start_capture(a))
                 self.tiles[action] = tile
-            grid.addWidget(tile, i // 3, i % 3)
+            grid.addWidget(tile, i // 4, i % 4)
         root.addLayout(grid)
 
         # Option chips
@@ -158,6 +159,7 @@ class CaptureHub(QWidget):
         rt.on_change(self._refresh)
         controller.bridge.event.connect(self._on_event)
         controller.hotkeys_changed.connect(self._refresh)
+        controller.procedure_changed.connect(self._refresh)
         self._settings_unsub = self.app.settings.add_listener(lambda key, _v: self._on_setting(key))
         self.destroyed.connect(lambda *_: self._settings_unsub())
         on_theme_changed(self, lambda _t: self.update())
@@ -214,6 +216,9 @@ class CaptureHub(QWidget):
     def start_capture(self, action: str) -> None:
         """Hide the hub so it is not in the picture, then capture (optionally delayed)."""
         self.hide()
+        if action == "procedure.toggle":
+            self.controller.toggle_procedure()
+            return
         self.controller.hide_chrome()
 
         def go() -> None:
@@ -234,6 +239,9 @@ class CaptureHub(QWidget):
         for action, tile in self.tiles.items():
             hotkey = self.app.hotkeys.binding(action)
             tile.set_shortcut_text(str(hotkey) if hotkey else "")
+        session = self.controller.procedure
+        if session is not None and "procedure.toggle" in self.tiles:
+            self.tiles["procedure.toggle"].set_shortcut_text(self.t("hub.procedure.recording", count=len(session.steps)))
         steps = self._enabled_steps()
         for chip in (self.copy_chip, self.save_chip):
             chip.blockSignals(True)

@@ -40,6 +40,7 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "tools.color": "Ctrl+Shift+C",
     "tools.measure": "Ctrl+Shift+M",
     "capture.interval": None,
+    "procedure.toggle": "Ctrl+Shift+P",
     "app.open_history": "Ctrl+Shift+H",
 }
 

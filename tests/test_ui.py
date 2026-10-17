@@ -484,6 +484,47 @@ class ToolsTests(UiTestCase):
         self.assertIn("administrator", self.notes[-1][1])
 
 
+class ProcedureTests(UiTestCase):
+    def test_record_procedure_edit_and_export_all_formats(self):
+        self.controller.trigger("procedure.toggle")
+        self.assertIsNotNone(self.controller.procedure)
+        bar = self.controller._session_bar
+        QTest.qWaitForWindowExposed(bar)
+        shot(bar, "30_procedure_bar")
+        for _ in range(2):
+            self.controller.trigger("capture.window")
+            self.assertTrue(wait_until(lambda n=len(self.captured): len(self.captured) > n))
+        self.assertTrue(wait_until(lambda: len(self.controller.procedure.steps) == 2))
+        self.assertIn("2", bar.text.text())
+        window = self.controller.finish_procedure()
+        self.assertIsNone(self.controller.procedure)
+        QTest.qWaitForWindowExposed(window)
+        window.title.setText("Aprobare comandă")
+        window.title.editingFinished.emit()
+        window.list.setCurrentRow(0)
+        window.step_title.setText("Deschide comanda")
+        window.step_title.editingFinished.emit()
+        window.step_desc.setPlainText("Caută comanda 10482.")
+        window._move(1)
+        self.assertEqual(window.session.steps[1].title, "Deschide comanda")
+        window.resize(1100, 720)
+        shot(window, "31_procedure_window")
+        out = Path(self._tmp.name) / "export"
+        out.mkdir()
+        for fmt, ext in (("word", "docx"), ("pdf", "pdf"), ("html", "html"), ("md", "md")):
+            target = window.export(fmt, out / f"proc.{ext}")
+            self.assertTrue(target.exists() and target.stat().st_size > 1000, fmt)
+        self.assertEqual((out / "proc.pdf").read_bytes()[:4], b"%PDF")
+        window.close()
+
+    def test_cancel_empty_procedure(self):
+        self.controller.start_procedure()
+        folder = self.controller.procedure.folder
+        self.controller.cancel_procedure()
+        self.assertIsNone(self.controller.procedure)
+        self.assertFalse(folder.exists())
+
+
 class StepEditorTests(UiTestCase):
     def test_number_steps_on_a_window_capture(self):
         overlay = self.open_selector()
@@ -593,7 +634,7 @@ class HubTests(UiTestCase):
     def test_hub_tiles_chips_and_capture(self):
         hub = self.controller.show_hub()
         QTest.qWaitForWindowExposed(hub)
-        hub.resize(560, 560)
+        hub.resize(680, 560)
         self.assertEqual(hub.tiles["capture.region"].shortcut_text, "Ctrl+Shift+1")
         # Copy chip reflects and edits the after-capture chain.
         self.assertTrue(hub.copy_chip.isChecked())
@@ -664,7 +705,7 @@ class DarkThemeTests(UiTestCase):
     def test_dark_hub_settings_and_selector(self):
         hub = self.controller.show_hub()
         QTest.qWaitForWindowExposed(hub)
-        hub.resize(560, 520)
+        hub.resize(680, 520)
         shot(hub, "10_hub_dark")
         dialog = self.controller.show_settings()
         QTest.qWaitForWindowExposed(dialog)

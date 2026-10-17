@@ -54,7 +54,7 @@ class TrayIcon(QSystemTrayIcon):
 
         tools = QMenu(menu)
         rt.bind(tools.setTitle, "tray.menu.tools")
-        for action_id in ("tools.color", "tools.measure", "capture.interval", "capture.edit", "capture.steps", "ocr.region"):
+        for action_id in ("procedure.toggle", "tools.color", "tools.measure", "capture.interval", "capture.edit", "capture.steps", "ocr.region"):
             action = QAction(tools)
             rt.bind(action.setText, f"action.{action_id}")
             action.triggered.connect(lambda _=False, a=action_id: controller.trigger(a, from_menu=True))

@@ -60,6 +60,7 @@ class AppController(QObject):
     captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
     ocr_finished = Signal(object, object, object)  # window, OcrResult | None, error str | None
     interval_changed = Signal()
+    procedure_changed = Signal()
     scroll_finished = Signal(object, str, object)  # CaptureResult | None, reason, scroller
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
@@ -78,6 +79,9 @@ class AppController(QObject):
         self._preview: QWidget | None = None
         self.pins: list[QWidget] = []
         self.edge_bar: QWidget | None = None
+        self.procedure = None  # ProcedureSession being recorded
+        self._session_bar = None
+        self._procedure_window = None
         self.scroller_factory: Callable[[], object] | None = None  # tests inject a fake
         self._scroll_indicator: QWidget | None = None
         self._region_default = "default"  # what Enter does in the selector ("scroll" from the hub tile)
@@ -102,6 +106,7 @@ class AppController(QObject):
             "tools.color": lambda: self.capture_region("tools.color"),
             "tools.measure": lambda: self.capture_region("tools.measure"),
             "capture.interval": self.ask_interval_capture,
+            "procedure.toggle": self.toggle_procedure,
             "ocr.region": lambda: self.capture_region("ocr.region"),
             "app.open_editor": self.edit_last_capture,
             "app.open_history": self.show_history,
@@ -163,11 +168,16 @@ class AppController(QObject):
 
     def hide_chrome(self) -> bool:
         """Hide ScreenPilot's own floating UI so it never appears in a capture."""
-        bar = self.edge_bar
-        if bar is not None and bar.isVisible():
-            bar.suspend()
-            return True
-        return False
+        hidden = False
+        for bar in (self.edge_bar, self._session_bar):
+            if bar is not None and bar.isVisible():
+                bar.suspend()
+                hidden = True
+        window = self._procedure_window
+        if window is not None and window.isVisible() and not window.isMinimized():
+            window.showMinimized()
+            hidden = True
+        return hidden
 
     # -- capture flows --------------------------------------------------------
     def _guard(self, fn: Callable[[], CaptureResult | None]) -> None:
@@ -362,6 +372,139 @@ class AppController(QObject):
         self.interval = None
         self.interval_changed.emit()
 
+    # -- procedure recording --------------------------------------------------
+    def toggle_procedure(self) -> None:
+        if self.procedure is None:
+            self.start_procedure()
+        else:
+            self.finish_procedure()
+
+    def start_procedure(self, title: str = "") -> None:
+        from screenpilot.docs import ProcedureSession
+        from screenpilot.ui.procedure import SessionBar
+
+        if self.procedure is not None:
+            return
+        import getpass
+
+        try:
+            author = getpass.getuser()
+        except Exception:  # noqa: BLE001
+            author = ""
+        self.procedure = ProcedureSession.create(self.app.paths.data_dir / "procedures", title=title, author=author)
+        bar = SessionBar(self.app.translator, lambda: self.busy)
+        bar.finish_clicked.connect(self.finish_procedure)
+        bar.cancel_clicked.connect(self.cancel_procedure)
+        self.retranslator.on_change(lambda: bar.retranslate() if self._session_bar is bar else None)
+        self._session_bar = bar
+        bar.show_bar()
+        self.procedure_changed.emit()
+        self.notify.emit(self.t("procedure.window"), self.t("procedure.started"), False)
+
+    def _add_procedure_step(self, result: CaptureResult) -> None:
+        session = self.procedure
+        source = str(result.metadata.get("window_title", "")) or self.t(f"capture.mode.{result.mode}")
+        session.add(result.image, source=source)
+        if self._session_bar is not None:
+            self._session_bar.set_count(len(session.steps))
+        window = self._procedure_window
+        if window is not None and window.session is session:
+            window.step_added()
+            window.showNormal()
+        if getattr(self, "_one_shot_procedure", False):
+            self._one_shot_procedure = False
+            self.procedure = None
+        self.procedure_changed.emit()
+
+    def finish_procedure(self) -> QWidget | None:
+        session = self.procedure
+        if session is None:
+            return None
+        self.procedure = None
+        if self._session_bar is not None:
+            self._session_bar.close()
+            self._session_bar = None
+        self.procedure_changed.emit()
+        return self.open_procedure(session)
+
+    def cancel_procedure(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        session = self.procedure
+        if session is None:
+            return
+        if session.steps:
+            answer = QMessageBox.question(
+                None, self.t("procedure.cancel"), self.t("procedure.confirm_discard", count=len(session.steps))
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.procedure = None
+        if self._session_bar is not None:
+            self._session_bar.close()
+            self._session_bar = None
+        session.discard()
+        self.procedure_changed.emit()
+
+    def open_procedure(self, session) -> QWidget:
+        from screenpilot.ui.procedure import ProcedureWindow
+
+        if isinstance(session, Path):
+            from screenpilot.docs import ProcedureSession
+
+            session = ProcedureSession.load(session)
+        window = ProcedureWindow(session, self.app.translator, save_dir=self.app.output_dir, reveal=self.app.shell.reveal)
+        window.add_capture.connect(lambda: self._procedure_add_capture(window))
+        window.edit_image.connect(lambda row: self._procedure_edit_image(window, row))
+        key = f"procedure-{id(window)}"
+        self._windows[key] = window
+        window.destroyed.connect(lambda *_: self._windows.pop(key, None))
+        window.destroyed.connect(lambda *_: setattr(self, "_procedure_window", None) if self._procedure_window is window else None)
+        self._procedure_window = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return window
+
+    def _procedure_add_capture(self, window) -> None:
+        """Capture one more step straight into an open procedure."""
+        self.procedure = window.session
+        self._one_shot_procedure = True
+        window.showMinimized()
+        QTimer.singleShot(MENU_SETTLE_MS, self.capture_region)
+
+    def _procedure_edit_image(self, window, row: int) -> None:
+        from PIL import Image
+
+        from screenpilot.capture.image import CapturedImage
+
+        if not 0 <= row < len(window.session.steps):
+            return
+        step = window.session.steps[row]
+        with Image.open(window.session.image_path(step)) as img:
+            image = CapturedImage.from_pil(img)
+        result = CaptureResult(image, "region", Rect(0, 0, image.width, image.height))
+
+        def done(edited: CaptureResult) -> None:
+            window.session.replace_image(row, edited.image)
+            window.reload(keep_row=True)
+
+        from screenpilot.ui.editor_window import EditorWindow
+
+        editor = EditorWindow(
+            result,
+            self.app.translator,
+            on_done=done,
+            copy=lambda img: self.copy_result(CaptureResult(img, "region", result.region)),
+            save_dir=self.app.output_dir,
+            settings=self.app.settings,
+            ocr_engine=self.ocr_engine,
+        )
+        key = f"editor-{id(editor)}"
+        self._windows[key] = editor
+        editor.destroyed.connect(lambda *_: self._windows.pop(key, None))
+        editor.show()
+
     def capture_region_then_scroll(self) -> None:
         """Selector where Enter / click starts a scrolling capture."""
         self.capture_region("capture.scrolling")
@@ -479,6 +622,8 @@ class AppController(QObject):
 
     def _on_captured(self, result: CaptureResult, saved_path: Path | None, error: str) -> None:  # GUI thread
         size = dict(width=result.image.width, height=result.image.height)
+        if self.procedure is not None and not error:
+            self._add_procedure_step(result)
         if error:
             self.notify.emit(self.t("notify.failed.title"), error, True)
             return
