@@ -43,5 +43,20 @@ def main(path: str) -> int:
     return 0
 
 
+def log_tail(path: str, limit: int = 3500) -> None:
+    """Print the end of the test output (crashes leave no JUnit failure entry)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()[-limit:]
+    except OSError:
+        return
+    if "passed" in text and "failed" not in text and "error" not in text.lower():
+        return
+    print(f"::warning title=pytest output (tail)::{escape(text)}")
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "junit.xml"))
+    code = main(sys.argv[1] if len(sys.argv) > 1 else "junit.xml")
+    if len(sys.argv) > 2:
+        log_tail(sys.argv[2])
+    sys.exit(code)
