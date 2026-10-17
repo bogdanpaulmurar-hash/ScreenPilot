@@ -31,8 +31,12 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "capture.delayed": "Ctrl+Shift+5",
     "capture.scrolling": "Ctrl+Shift+6",
     "capture.repeat_last": "Ctrl+Shift+R",
+    "capture.edit": "Ctrl+Shift+E",
+    "capture.steps": "Ctrl+Shift+N",
+    "capture.copy": None,
+    "capture.pin": None,
     "ocr.region": "Ctrl+Shift+O",
-    "app.open_editor": "Ctrl+Shift+E",
+    "app.open_editor": None,
     "app.open_history": "Ctrl+Shift+H",
 }
 

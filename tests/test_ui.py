@@ -263,6 +263,52 @@ class ScrollingUiTests(UiTestCase):
         del win
 
 
+class CaptureModeTests(UiTestCase):
+    def test_mode_hotkeys_open_coloured_selector_with_their_enter_action(self):
+        from screenpilot.capture.profiles import set_mode_color
+
+        set_mode_color(self.app.settings, "capture.copy", "#123456")
+        self.controller.trigger("capture.copy")
+        self.assertTrue(wait_until(lambda: self.controller.selector.active))
+        overlay = self.controller.selector.overlays[0]
+        self.assertEqual(overlay._accent.name(), "#123456")
+        self.assertEqual(overlay.style.mode_label, "Copy only")
+        QTest.mouseMove(overlay, QPoint(300, 300))
+        self.select(overlay, QPoint(60, 60), QPoint(200, 160))
+        shot(overlay, "23_mode_copy_selector")
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertIsNone(self.captured[0][1])  # copy only: nothing saved
+
+    def test_edit_mode_magenta_and_opens_editor(self):
+        self.app.settings.set("selector.thickness", 4)
+        self.controller.trigger("capture.edit")
+        self.assertTrue(wait_until(lambda: self.controller.selector.active))
+        overlay = self.controller.selector.overlays[0]
+        self.assertEqual(overlay._accent.name(), "#e3008c")
+        self.assertEqual(overlay.style.thickness, 4)
+        QTest.mouseMove(overlay, QPoint(400, 300))
+        shot(overlay, "24_mode_edit_selector")
+        self.select(overlay, QPoint(60, 60), QPoint(300, 220))
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(
+            wait_until(lambda: any(k.startswith(("editor-", "steps-")) for k in self.controller._windows))
+        )
+
+    def test_modes_settings_page(self):
+        dialog = self.controller.show_settings()
+        QTest.qWaitForWindowExposed(dialog)
+        dialog.tabs.setCurrentIndex(2)
+        QApplication.processEvents()
+        keys, swatch = dialog.mode_rows["capture.edit"]
+        self.assertEqual(keys.text(), "Ctrl+Shift+E")
+        self.assertEqual(swatch.text(), "#E3008C")
+        self.assertEqual(dialog.mode_rows["capture.region"][1].text(), "Accent")
+        shot(dialog, "25_settings_modes")
+        dialog._reset_mode_colors()
+        dialog.close()
+
+
 class StepEditorTests(UiTestCase):
     def test_number_steps_on_a_window_capture(self):
         overlay = self.open_selector()
@@ -506,11 +552,11 @@ class WindowsTests(UiTestCase):
         self.assertEqual(self.app.translator.language, "ro")
         self.controller.trigger("capture.window")
         self.assertTrue(wait_until(lambda: self.captured))
-        for index, name in enumerate(("general", "capture", "after_capture", "hotkeys", "diagnostics")):
+        for index, name in enumerate(("general", "capture", "modes", "after_capture", "hotkeys", "diagnostics")):
             dialog.tabs.setCurrentIndex(index)
             QApplication.processEvents()
             shot(dialog, f"14_settings_{name}_ro")
-        self.assertEqual(dialog.tabs.tabText(3), "Taste rapide")
+        self.assertEqual(dialog.tabs.tabText(4), "Taste rapide")
         self.assertGreater(dialog.timing_table.rowCount(), 0)
 
         dialog.theme_combo.setCurrentIndex(dialog.theme_combo.findData("dark"))

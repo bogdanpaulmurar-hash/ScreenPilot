@@ -32,11 +32,14 @@ from screenpilot.ui.countdown import CountdownOverlay
 from screenpilot.ui.qt_helpers import EventBridge, Retranslator
 from screenpilot.ui.region_selector import (
     ACTION_COPY,
+    ACTION_EDIT,
+    ACTION_OCR,
     ACTION_PIN,
     ACTION_SAVE_AS,
     ACTION_SCROLL,
     ACTION_STEPS,
     RegionSelector,
+    SelectorStyle,
     physical_to_logical,
 )
 from screenpilot.workflow import StepStatus
@@ -84,8 +87,12 @@ class AppController(QObject):
             "capture.all_monitors": self.capture_all_monitors,
             "capture.delayed": lambda: self.capture_delayed(self.app.settings.get("capture.default_delay_seconds")),
             "capture.repeat_last": self.repeat_last,
-            "capture.scrolling": self.capture_region_then_scroll,
-            "ocr.region": self._not_available,
+            "capture.scrolling": lambda: self.capture_region("capture.scrolling"),
+            "capture.edit": lambda: self.capture_region("capture.edit"),
+            "capture.steps": lambda: self.capture_region("capture.steps"),
+            "capture.copy": lambda: self.capture_region("capture.copy"),
+            "capture.pin": lambda: self.capture_region("capture.pin"),
+            "ocr.region": lambda: self.capture_region("ocr.region"),
             "app.open_editor": self._not_available,
             "app.open_history": self.show_history,
         }
@@ -154,9 +161,26 @@ class AppController(QObject):
         if result is not None:
             self.process(result)
 
-    def capture_region(self) -> None:
+    def selector_style(self, mode_id: str = "capture.region") -> SelectorStyle:
+        from screenpilot.capture.profiles import BY_ID, mode_color
+
+        s = self.app.settings
+        mode = BY_ID.get(mode_id)
+        return SelectorStyle(
+            color=mode_color(s, mode_id),
+            thickness=int(s.get("selector.thickness")),
+            dim=int(s.get("selector.dim")),
+            magnifier=bool(s.get("selector.magnifier")),
+            mode_label=self.t(mode.label_key) if mode is not None and mode.id != "capture.region" else "",
+        )
+
+    def capture_region(self, mode_id: str = "capture.region") -> None:
         if self.selector.active:
             return
+        from screenpilot.capture.profiles import BY_ID
+
+        mode = BY_ID.get(mode_id, BY_ID["capture.region"])
+        self._region_default = mode.action
         self._selector_started = time.perf_counter()
         try:
             frozen = self.app.capture.freeze()
@@ -165,7 +189,7 @@ class AppController(QObject):
         except ScreenPilotError as exc:
             self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
             return
-        self.selector.start(frozen, monitors, windows, self._frame_provider(frozen))
+        self.selector.start(frozen, monitors, windows, self._frame_provider(frozen), self.selector_style(mode.id))
         QTimer.singleShot(0, self._selector_shown)
 
     def _selector_shown(self) -> None:
@@ -234,14 +258,16 @@ class AppController(QObject):
             self.pin(result)
         elif action == ACTION_STEPS:
             self.open_steps(result)
+        elif action == ACTION_EDIT:
+            self.open_editor(result)
+        elif action == ACTION_OCR:
+            self.run_ocr(result)
         else:
             self.process(result)
 
     def capture_region_then_scroll(self) -> None:
         """Selector where Enter / click starts a scrolling capture."""
-        self.capture_region()
-        if self.selector.active:
-            self._region_default = ACTION_SCROLL
+        self.capture_region("capture.scrolling")
 
     # -- scrolling ------------------------------------------------------------
     def _make_scroller(self):
@@ -418,6 +444,31 @@ class AppController(QObject):
         except OSError:
             log.exception("Could not create drag file")
             return None
+
+    def open_editor(self, result: CaptureResult) -> QWidget:
+        """Image editor; Done runs the usual after-capture actions."""
+        try:
+            from screenpilot.ui.editor_window import EditorWindow
+        except ImportError:  # editor not available yet
+            return self.open_steps(result)
+        editor = EditorWindow(
+            result,
+            self.app.translator,
+            on_done=self.process,
+            copy=lambda image: self.copy_result(CaptureResult(image, result.mode, result.region)),
+            save_dir=self.app.output_dir,
+            settings=self.app.settings,
+        )
+        key = f"editor-{id(editor)}"
+        self._windows[key] = editor
+        editor.destroyed.connect(lambda *_: self._windows.pop(key, None))
+        editor.show()
+        editor.raise_()
+        editor.activateWindow()
+        return editor
+
+    def run_ocr(self, result: CaptureResult) -> None:
+        self._not_available()
 
     def open_steps(self, result: CaptureResult) -> QWidget:
         """Step numbering on a capture; Done runs the usual after-capture actions."""

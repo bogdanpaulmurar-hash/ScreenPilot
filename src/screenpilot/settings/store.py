@@ -55,6 +55,12 @@ DEFAULTS: dict[str, Any] = {
         ],
         "stop_on_error": False,
     },
+    "selector": {
+        "colors": {},
+        "thickness": 2,
+        "dim": 47,
+        "magnifier": True,
+    },
     "history": {
         "limit": 100,
     },

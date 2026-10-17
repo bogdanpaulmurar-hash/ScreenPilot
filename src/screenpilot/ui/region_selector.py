@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 from typing import Callable, Sequence
 
 from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
@@ -30,6 +31,7 @@ from PySide6.QtGui import (
     QImage,
     QKeyEvent,
     QMouseEvent,
+    QFont,
     QPainter,
     QPainterPath,
     QPaintEvent,
@@ -66,6 +68,8 @@ ACTION_SAVE_AS = "save_as"
 ACTION_PIN = "pin"
 ACTION_SCROLL = "scroll"
 ACTION_STEPS = "steps"
+ACTION_EDIT = "edit"
+ACTION_OCR = "ocr"
 
 HANDLE_CURSORS = {
     "nw": Qt.CursorShape.SizeFDiagCursor,
@@ -80,10 +84,23 @@ HANDLE_CURSORS = {
 }
 
 
-def selector_accent() -> QColor:
-    """Accent that reads well on a dimmed screenshot (always the light variant)."""
+def selector_accent(color: str = "") -> QColor:
+    """Border colour that reads well on a dimmed screenshot (theme accent if empty)."""
+    if color:
+        custom = QColor(color)
+        if custom.isValid():
+            return custom
     accent = QColor(theme().accent)
     return accent.lighter(160) if accent.lightness() < 140 else accent
+
+
+@dataclass(frozen=True)
+class SelectorStyle:
+    color: str = ""  # '' = accent
+    thickness: int = 2
+    dim: int = 47  # percent
+    magnifier: bool = True
+    mode_label: str = ""  # shown next to the hint for non-default modes
 
 
 def match_screens(monitors: Sequence[Monitor], screens: Sequence[QScreen]) -> list[tuple[Monitor, QScreen]]:
@@ -124,10 +141,10 @@ class ActionBar(QFrame):
     triggered = Signal(str)
     cancelled = Signal()
 
-    def __init__(self, parent: QWidget, translator: Translator) -> None:
+    def __init__(self, parent: QWidget, translator: Translator, accent: QColor | None = None) -> None:
         super().__init__(parent)
         self.t = translator.t
-        accent = selector_accent()
+        accent = accent or selector_accent()
         self.setObjectName("ActionBar")
         self.setStyleSheet(
             f"QFrame#ActionBar {{ background: rgba(32,32,32,240); border: 1px solid rgba(255,255,255,40); border-radius: 10px; }}"
@@ -150,8 +167,8 @@ class ActionBar(QFrame):
             ("save_as", "selector.action.save", ACTION_SAVE_AS, True),
             ("pin", "selector.action.pin", ACTION_PIN, True),
             ("steps", "selector.action.steps", ACTION_STEPS, True),
-            ("edit", "selector.action.edit", None, False),
-            ("ocr", "selector.action.ocr", None, False),
+            ("edit", "selector.action.edit", ACTION_EDIT, True),
+            ("ocr", "selector.action.ocr", ACTION_OCR, True),
             ("close", "selector.action.cancel", "cancel", True),
         )
         for icon_name, key, action, enabled in spec:
@@ -193,8 +210,10 @@ class MonitorOverlay(QWidget):
         windows: Sequence[WindowInfo],
         translator: Translator,
         frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
+        style: SelectorStyle | None = None,
     ) -> None:
         super().__init__(None)
+        self.style = style or SelectorStyle()
         self.monitor = monitor
         self.translator = translator
         self.model = SelectionModel(
@@ -206,8 +225,8 @@ class MonitorOverlay(QWidget):
         local = QRect(b.x - frozen_origin.x, b.y - frozen_origin.y, b.width, b.height)
         self._background = QPixmap.fromImage(frozen.copy(local))
         self._hovering = False  # mouse is on this monitor: magnifier, hint, snapping
-        self._accent = selector_accent()
-        self._dim = QColor(0, 0, 0, 120)
+        self._accent = selector_accent(self.style.color)
+        self._dim = QColor(0, 0, 0, round(255 * max(0, min(80, self.style.dim)) / 100))
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -217,7 +236,7 @@ class MonitorOverlay(QWidget):
         self.setScreen(screen)
         self.setGeometry(screen.geometry())
 
-        self.action_bar = ActionBar(self, translator)
+        self.action_bar = ActionBar(self, translator, self._accent)
         self.action_bar.hide()
         self.action_bar.triggered.connect(self._confirm)
         self.action_bar.cancelled.connect(self.cancelled.emit)
@@ -356,6 +375,10 @@ class MonitorOverlay(QWidget):
             self._confirm(ACTION_SCROLL)
         elif key == Qt.Key.Key_N and not ctrl:
             self._confirm(ACTION_STEPS)
+        elif key == Qt.Key.Key_E and not ctrl:
+            self._confirm(ACTION_EDIT)
+        elif key == Qt.Key.Key_T and not ctrl:
+            self._confirm(ACTION_OCR)
         elif key in arrows:
             dx, dy = arrows[key]
             self.model.nudge(dx, dy, resize=resize)
@@ -397,9 +420,10 @@ class MonitorOverlay(QWidget):
             p.fillPath(dim.subtracted(cut), self._dim)
             # Two-tone outline: readable on light and dark content alike.
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(OUTLINE_DARK, 4))
+            width = max(1, self.style.thickness)
+            p.setPen(QPen(OUTLINE_DARK, width + 2))
             p.drawRect(hole.adjusted(-1, -1, 1, 1))
-            p.setPen(QPen(self._accent, 2))
+            p.setPen(QPen(self._accent, width))
             p.drawRect(hole.adjusted(-1, -1, 1, 1))
             self._paint_size_pill(p, focus, hole, is_window=snap.selection is None)
             if snap.selection is not None and snap.state is not State.DRAGGING:
@@ -409,7 +433,8 @@ class MonitorOverlay(QWidget):
 
         if self._hovering and snap.state not in (State.ADJUSTING, State.MOVING):
             self._paint_crosshair(p, snap.cursor)
-            self._paint_magnifier(p, snap.cursor)
+            if self.style.magnifier:
+                self._paint_magnifier(p, snap.cursor)
         if self._hovering and snap.state is State.IDLE:
             self._paint_hint(p)
         p.end()
@@ -497,7 +522,18 @@ class MonitorOverlay(QWidget):
         p.setFont(ui_font(10))
         metrics = p.fontMetrics()
         w, h = min(self.width() - 32, metrics.horizontalAdvance(text) + 40), metrics.height() + 18
-        self._pill(p, QRectF((self.width() - w) / 2, self.height() - h - 36, w, h), text)
+        y = self.height() - h - 36
+        self._pill(p, QRectF((self.width() - w) / 2, y, w, h), text)
+        if self.style.mode_label:
+            label_text = self.style.mode_label
+            p.setFont(ui_font(10.5, weight=QFont.Weight.DemiBold))
+            lw = p.fontMetrics().horizontalAdvance(label_text) + 36
+            rect = QRectF((self.width() - lw) / 2, y - h - 10, lw, h)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(self._accent)
+            p.drawRoundedRect(rect, h / 2, h / 2)
+            p.setPen(QColor("#000000") if self._accent.lightness() > 150 else QColor("#ffffff"))
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label_text)
 
 
 class RegionSelector(QObject):
@@ -521,6 +557,7 @@ class RegionSelector(QObject):
         monitors: Sequence[Monitor],
         windows: Sequence[WindowInfo],
         frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
+        style: SelectorStyle | None = None,
     ) -> None:
         if self.overlays:
             return
@@ -529,7 +566,7 @@ class RegionSelector(QObject):
         origin = Point(frozen.region.x, frozen.region.y)
         cursor = QCursor.pos()
         for monitor, screen in match_screens(monitors, QGuiApplication.screens()):
-            overlay = MonitorOverlay(monitor, screen, image, origin, windows, self.translator, frames)
+            overlay = MonitorOverlay(monitor, screen, image, origin, windows, self.translator, frames, style)
             overlay.pressed.connect(self._on_pressed)
             overlay.confirmed.connect(lambda rect, action: self._finish((rect, action)))
             overlay.cancelled.connect(lambda: self._finish(None))

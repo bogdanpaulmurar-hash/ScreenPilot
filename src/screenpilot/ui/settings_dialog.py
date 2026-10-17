@@ -90,15 +90,19 @@ class SettingsDialog(QDialog):
         for icon_name, key, builder in (
             ("general", "settings.nav.general", self._build_general),
             ("region", "settings.nav.capture", self._build_capture),
+            ("sparkle", "settings.nav.modes", self._build_modes),
             ("workflow", "settings.nav.after_capture", self._build_after_capture),
             ("keyboard", "settings.nav.hotkeys", self._build_hotkeys),
-            ("sparkle", "settings.nav.diagnostics", self._build_diagnostics),
+            ("settings", "settings.nav.diagnostics", self._build_diagnostics),
         ):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, icon_name)
             self.nav.addItem(item)
             self.rt.bind(item.setText, key)
-            self.stack.addWidget(self._page(key, builder()))
+            wrapped = self._page(key, builder())
+            self.stack.addWidget(wrapped)
+            if key == "settings.nav.diagnostics":
+                self._diag_page = wrapped
         on_theme_changed(self, self._retheme_nav)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
@@ -454,9 +458,98 @@ class SettingsDialog(QDialog):
         self.rt.on_change(self._fill_hotkeys)
         return page
 
+    # -- capture modes ----------------------------------------------------------
+    def _build_modes(self) -> QWidget:
+        from screenpilot.capture.profiles import MODES
+
+        page, column = self._column()
+        intro = label(role="secondary", wrap=True)
+        self.rt.bind(intro.setText, "modes.intro")
+        column.addWidget(intro)
+        card = Card(padding=12, spacing=4)
+        self.mode_rows: dict[str, tuple[QLabel, QPushButton]] = {}
+        for mode in MODES:
+            row = QHBoxLayout()
+            name = label()
+            self.rt.bind(name.setText, mode.label_key)
+            keys = label(role="kbd")
+            swatch = QPushButton()
+            swatch.setFixedSize(120, 30)
+            swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.rt.bind(swatch.setToolTip, "modes.pick")
+            swatch.clicked.connect(lambda _=False, m=mode.id: self._pick_mode_color(m))
+            row.addWidget(name, 1)
+            row.addWidget(keys)
+            row.addSpacing(12)
+            row.addWidget(swatch)
+            card.body.addLayout(row)
+            self.mode_rows[mode.id] = (keys, swatch)
+        hint = label(role="caption")
+        self.rt.bind(hint.setText, "modes.shortcut_hint")
+        card.body.addWidget(hint)
+        column.addWidget(card)
+
+        self.thickness_spin = QSpinBox()
+        self.thickness_spin.setRange(1, 6)
+        self.thickness_spin.setSuffix(" px")
+        self.thickness_spin.setValue(self.settings.get("selector.thickness"))
+        self.thickness_spin.valueChanged.connect(lambda v: self._set("selector.thickness", v))
+        column.addWidget(self._row("region", "modes.thickness", None, self.thickness_spin))
+        self.dim_spin = QSpinBox()
+        self.dim_spin.setRange(0, 80)
+        self.dim_spin.setSingleStep(5)
+        self.dim_spin.setSuffix(" %")
+        self.dim_spin.setValue(self.settings.get("selector.dim"))
+        self.dim_spin.valueChanged.connect(lambda v: self._set("selector.dim", v))
+        column.addWidget(self._row("theme", "modes.dim", None, self.dim_spin))
+        column.addWidget(self._row("search", "modes.magnifier", "modes.magnifier.desc", self._toggle("selector.magnifier")))
+        reset = QPushButton()
+        self.rt.bind(reset.setText, "modes.reset")
+        reset.clicked.connect(self._reset_mode_colors)
+        column.addWidget(reset, 0, Qt.AlignmentFlag.AlignLeft)
+        column.addStretch(1)
+        self._refresh_modes()
+        self.rt.on_change(self._refresh_modes)
+        self.controller.hotkeys_changed.connect(self._refresh_modes)
+        return page
+
+    def _refresh_modes(self) -> None:
+        from screenpilot.capture.profiles import mode_color
+        from screenpilot.ui.region_selector import selector_accent
+
+        for mode_id, (keys, swatch) in self.mode_rows.items():
+            hotkey = self.app.hotkeys.binding(mode_id)
+            keys.setText(str(hotkey) if hotkey else "—")
+            configured = mode_color(self.settings, mode_id)
+            color = selector_accent(configured)
+            text_color = "#000000" if color.lightness() > 150 else "#ffffff"
+            swatch.setText(color.name().upper() if configured else self.t("modes.auto"))
+            swatch.setStyleSheet(
+                f"QPushButton {{ background: {color.name()}; color: {text_color}; border: 1px solid rgba(0,0,0,40);"
+                " border-radius: 6px; font-weight: 600; }"
+            )
+
+    def _pick_mode_color(self, mode_id: str) -> None:
+        from PySide6.QtWidgets import QColorDialog
+
+        from screenpilot.capture.profiles import mode_color, set_mode_color
+        from screenpilot.ui.region_selector import selector_accent
+
+        current = selector_accent(mode_color(self.settings, mode_id))
+        color = QColorDialog.getColor(current, self, self.t("modes.pick"))
+        if color.isValid():
+            set_mode_color(self.settings, mode_id, color.name())
+            self._set("selector.colors", self.settings.get("selector.colors"))
+            self._refresh_modes()
+
+    def _reset_mode_colors(self) -> None:
+        self._set("selector.colors", {})
+        self._refresh_modes()
+
     # -- diagnostics ------------------------------------------------------------
     def _build_diagnostics(self) -> QWidget:
         page, column = self._column()
+        self._diag_page = None  # set by _page() wrapper below
         column.addWidget(
             self._row("edit", "diag.verbose", "diag.verbose.desc", self._toggle("diagnostics.verbose_logging"))
         )
@@ -496,7 +589,9 @@ class SettingsDialog(QDialog):
         column.addStretch(1)
         self._fill_timings()
         self.rt.on_change(self._fill_timings)
-        self.nav.currentRowChanged.connect(lambda row: self._fill_timings() if row == 4 else None)
+        self.nav.currentRowChanged.connect(
+            lambda row: self._fill_timings() if self.stack.widget(row) is self._diag_page else None
+        )
         return page
 
     def _fill_timings(self) -> None:
