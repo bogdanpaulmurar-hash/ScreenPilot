@@ -31,8 +31,11 @@ from screenpilot.hotkeys import RegistrationStatus
 from screenpilot.ui.countdown import CountdownOverlay
 from screenpilot.ui.qt_helpers import EventBridge, Retranslator
 from screenpilot.ui.region_selector import (
+    ACTION_COLOR,
     ACTION_COPY,
     ACTION_EDIT,
+    ACTION_INTERVAL,
+    ACTION_MEASURE,
     ACTION_OCR,
     ACTION_PIN,
     ACTION_SAVE_AS,
@@ -56,6 +59,7 @@ class AppController(QObject):
     hotkeys_changed = Signal()
     captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
     ocr_finished = Signal(object, object, object)  # window, OcrResult | None, error str | None
+    interval_changed = Signal()
     scroll_finished = Signal(object, str, object)  # CaptureResult | None, reason, scroller
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
@@ -95,6 +99,9 @@ class AppController(QObject):
             "capture.steps": lambda: self.capture_region("capture.steps"),
             "capture.copy": lambda: self.capture_region("capture.copy"),
             "capture.pin": lambda: self.capture_region("capture.pin"),
+            "tools.color": lambda: self.capture_region("tools.color"),
+            "tools.measure": lambda: self.capture_region("tools.measure"),
+            "capture.interval": self.ask_interval_capture,
             "ocr.region": lambda: self.capture_region("ocr.region"),
             "app.open_editor": self.edit_last_capture,
             "app.open_history": self.show_history,
@@ -128,7 +135,16 @@ class AppController(QObject):
         if action:
             self.trigger(action)
 
+    POLICY_FEATURES = {"capture.scrolling": "scrolling", "capture.pin": "pin", "ocr.region": "ocr"}
+
+    def allowed(self, action: str) -> bool:
+        feature = self.POLICY_FEATURES.get(action)
+        return feature is None or self.app.policy.allows(feature)
+
     def trigger(self, action: str, *, from_menu: bool = False) -> None:
+        if not self.allowed(action):
+            self.notify.emit(self.t("app.name"), self.t("policy.feature_disabled"), True)
+            return
         handler = self.actions.get(action)
         if handler is None:
             log.warning("No handler for action %s", action)
@@ -175,6 +191,8 @@ class AppController(QObject):
             dim=int(s.get("selector.dim")),
             magnifier=bool(s.get("selector.magnifier")),
             mode_label=self.t(mode.label_key) if mode is not None and mode.id != "capture.region" else "",
+            pick_color=mode_id == "tools.color",
+            measure=mode_id == "tools.measure",
         )
 
     def capture_region(self, mode_id: str = "capture.region") -> None:
@@ -246,6 +264,22 @@ class AppController(QObject):
         if action == ACTION_SCROLL:
             self.start_scrolling(rect)
             return
+        if action == ACTION_COLOR:
+            self._pick_color(frozen, rect)
+            return
+        if action == ACTION_MEASURE:
+            diagonal = round((rect.width**2 + rect.height**2) ** 0.5)
+            text = f"{rect.width} × {rect.height} px"
+            self.copy_text(text)
+            self.notify.emit(
+                self.t("measure.copied.title"),
+                self.t("measure.size", width=rect.width, height=rect.height, diagonal=diagonal),
+                False,
+            )
+            return
+        if action == ACTION_INTERVAL:
+            self.start_interval(rect)
+            return
         try:
             result = self.app.capture.region_from_frozen(frozen, rect)
         except ScreenPilotError as exc:
@@ -268,6 +302,66 @@ class AppController(QObject):
         else:
             self.process(result)
 
+    def _pick_color(self, frozen: CaptureResult, rect: Rect) -> None:
+        x, y = rect.x - frozen.region.x, rect.y - frozen.region.y
+        r, g, b = frozen.image.pixel(x, y)
+        hex_value = f"#{r:02X}{g:02X}{b:02X}"
+        self.copy_text(hex_value)
+        self.last_color = hex_value
+        self.notify.emit(self.t("color.copied.title"), self.t("color.copied.body", hex=hex_value, r=r, g=g, b=b), False)
+
+    # -- interval capture -----------------------------------------------------
+    def ask_interval_capture(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+
+        seconds, ok = QInputDialog.getInt(None, self.t("interval.title"), self.t("interval.every"), 10, 1, 3600)
+        if not ok:
+            return
+        count, ok = QInputDialog.getInt(None, self.t("interval.title"), self.t("interval.count"), 10, 0, 10000)
+        if not ok:
+            return
+        self._interval_plan = (seconds, count)
+        self.capture_region("capture.interval")
+
+    def start_interval(self, rect: Rect, seconds: int | None = None, count: int | None = None) -> None:
+        plan_seconds, plan_count = getattr(self, "_interval_plan", (10, 10))
+        seconds = seconds or plan_seconds
+        count = plan_count if count is None else count
+        self.stop_interval()
+        self.interval = {"rect": rect, "seconds": seconds, "count": count, "done": 0}
+        self._interval_timer = QTimer(self)
+        self._interval_timer.setInterval(int(seconds * 1000))
+        self._interval_timer.timeout.connect(self._interval_tick)
+        self._interval_timer.start()
+        self._interval_tick()
+
+    def _interval_tick(self) -> None:
+        state = getattr(self, "interval", None)
+        if not state:
+            return
+        try:
+            result = self.app.capture.capture_region(state["rect"])
+        except ScreenPilotError as exc:
+            self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
+            self.stop_interval()
+            return
+        self.process(result, quiet=True)
+        state["done"] += 1
+        self.interval_changed.emit()
+        if state["count"] and state["done"] >= state["count"]:
+            done = state["done"]
+            self.stop_interval()
+            self.notify.emit(self.t("interval.title"), self.t("interval.finished", done=done), False)
+
+    def stop_interval(self) -> None:
+        timer = getattr(self, "_interval_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._interval_timer = None
+        self.interval = None
+        self.interval_changed.emit()
+
     def capture_region_then_scroll(self) -> None:
         """Selector where Enter / click starts a scrolling capture."""
         self.capture_region("capture.scrolling")
@@ -284,6 +378,9 @@ class AppController(QObject):
 
     def start_scrolling(self, rect: Rect, **options) -> None:
         if self._scroll_indicator is not None:
+            return
+        if not self.app.policy.allows("scrolling"):
+            self.notify.emit(self.t("app.name"), self.t("policy.feature_disabled"), True)
             return
         try:
             scroller = self._make_scroller()
@@ -355,12 +452,14 @@ class AppController(QObject):
         log.info("Delayed capture cancelled")
 
     # -- post capture ---------------------------------------------------------
-    def process(self, result: CaptureResult, steps: list[dict] | None = None, *, saved_path: Path | None = None) -> None:
+    def process(
+        self, result: CaptureResult, steps: list[dict] | None = None, *, saved_path: Path | None = None, quiet: bool = False
+    ) -> None:
         """Run the configured (or given) action chain in the background."""
         future = self._worker.submit(self.app.run_after_capture, result, steps)
-        future.add_done_callback(lambda f: self._workflow_done(f, result, saved_path))
+        future.add_done_callback(lambda f: self._workflow_done(f, result, saved_path, quiet))
 
-    def _workflow_done(self, future, result: CaptureResult, saved_path: Path | None) -> None:  # worker thread
+    def _workflow_done(self, future, result: CaptureResult, saved_path: Path | None, quiet: bool = False) -> None:
         try:
             steps, ctx = future.result()
         except Exception as exc:  # noqa: BLE001
@@ -374,6 +473,8 @@ class AppController(QObject):
             error = self.t(
                 "notify.workflow_failed", action=self.t(f"workflow.action.{first.action_id}"), reason=first.message
             )
+        if quiet and not error:
+            return
         self.captured.emit(result, ctx.saved_path or saved_path, error)
 
     def _on_captured(self, result: CaptureResult, saved_path: Path | None, error: str) -> None:  # GUI thread
@@ -628,6 +729,9 @@ class AppController(QObject):
         return self._show_single("wizard", lambda: FirstRunWizard(self))
 
     def export_diagnostics(self) -> Path | None:
+        if not self.app.policy.allows("export_diagnostics"):
+            self.notify.emit(self.t("app.name"), self.t("policy.feature_disabled"), True)
+            return None
         from datetime import datetime
 
         suggested = Path.home() / "Desktop" / f"ScreenPilot-diagnostics-{datetime.now():%Y%m%d-%H%M}.zip"

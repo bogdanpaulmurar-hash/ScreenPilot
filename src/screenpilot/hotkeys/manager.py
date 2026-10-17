@@ -37,6 +37,9 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "capture.pin": None,
     "ocr.region": "Ctrl+Shift+O",
     "app.open_editor": None,
+    "tools.color": "Ctrl+Shift+C",
+    "tools.measure": "Ctrl+Shift+M",
+    "capture.interval": None,
     "app.open_history": "Ctrl+Shift+H",
 }
 

@@ -120,11 +120,21 @@ class SettingsDialog(QDialog):
         close.clicked.connect(self.close)
         side.addWidget(close)
 
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        policy = self.app.policy
+        if policy.active:
+            banner = label(role="secondary", wrap=True)
+            self.rt.bind(banner.setText, "policy.banner", message=policy.message)
+            banner.setStyleSheet("padding: 10px 28px; background: rgba(255,185,0,0.18);")
+            right.addWidget(banner)
+            self.policy_banner = banner
+        right.addWidget(self.stack, 1)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(side)
-        layout.addWidget(self.stack, 1)
+        layout.addLayout(right, 1)
 
     @property
     def tabs(self) -> "SettingsDialog._NavAdapter":
@@ -175,7 +185,14 @@ class SettingsDialog(QDialog):
         toggle = ToggleSwitch()
         toggle.setChecked(bool(self.settings.get(key)))
         toggle.toggled.connect(lambda checked: self._set(key, checked))
-        return toggle
+        return self._lock(toggle, key)
+
+    def _lock(self, widget: QWidget, key: str) -> QWidget:
+        """Grey out a control whose setting is enforced by the administrator."""
+        if self.settings.is_locked(key):
+            widget.setEnabled(False)
+            widget.setToolTip(self.t("error.locked"))
+        return widget
 
     @staticmethod
     def _column() -> tuple[QWidget, QVBoxLayout]:
@@ -208,6 +225,7 @@ class SettingsDialog(QDialog):
         self.language.currentIndexChanged.connect(
             lambda _i: self._set("general.language", self.language.currentData())
         )
+        self._lock(self.language, "general.language")
         column.addWidget(self._row("language", "settings.language", "settings.language.desc", self.language))
 
         self.theme_combo = QComboBox()
@@ -265,6 +283,7 @@ class SettingsDialog(QDialog):
             self.image_format.addItem(fmt.upper(), fmt)
         self.image_format.setCurrentIndex(max(0, self.image_format.findData(self.settings.get("capture.image_format"))))
         self.image_format.currentIndexChanged.connect(self._on_format)
+        self._lock(self.image_format, "capture.image_format")
         column.addWidget(self._row("image", "settings.image_format", "settings.image_format.desc", self.image_format))
 
         self.jpeg_quality = QSpinBox()
@@ -316,8 +335,57 @@ class SettingsDialog(QDialog):
         browse.clicked.connect(self._browse)
         row.addWidget(self.output_dir, 1)
         row.addWidget(browse)
+        self._lock(self.output_dir, "capture.output_dir")
+        self._lock(browse, "capture.output_dir")
         folder_card.body.addLayout(row)
         column.addWidget(folder_card)
+
+        column.addWidget(
+            self._row("cursor", "settings.include_cursor", "settings.include_cursor.desc", self._toggle("capture.include_cursor"))
+        )
+
+        wm_title = label(role="subtitle")
+        self.rt.bind(wm_title.setText, "settings.watermark")
+        column.addSpacing(8)
+        column.addWidget(wm_title)
+        column.addWidget(self._row("shield", "settings.watermark.enabled", None, self._toggle("watermark.enabled")))
+        wm_card = Card(padding=16, spacing=8)
+        wm_label = label()
+        self.rt.bind(wm_label.setText, "settings.watermark.text")
+        wm_card.body.addWidget(wm_label)
+        self.wm_text = QLineEdit(self.settings.get("watermark.text"))
+        self.wm_text.editingFinished.connect(lambda: self._set("watermark.text", self.wm_text.text()))
+        self._lock(self.wm_text, "watermark.text")
+        wm_card.body.addWidget(self.wm_text)
+        wm_tokens = label(role="caption")
+        self.rt.bind(wm_tokens.setText, "settings.watermark.tokens")
+        wm_card.body.addWidget(wm_tokens)
+        wm_row = QHBoxLayout()
+        pos_label = label(role="secondary")
+        self.rt.bind(pos_label.setText, "settings.watermark.position")
+        self.wm_position = QComboBox()
+        from screenpilot.editor.watermark import POSITIONS
+
+        for pos in POSITIONS:
+            self.wm_position.addItem("", pos)
+        self._retranslate_wm()
+        self.rt.on_change(self._retranslate_wm)
+        self.wm_position.setCurrentIndex(max(0, self.wm_position.findData(self.settings.get("watermark.position"))))
+        self.wm_position.currentIndexChanged.connect(lambda _i: self._set("watermark.position", self.wm_position.currentData()))
+        op_label = label(role="secondary")
+        self.rt.bind(op_label.setText, "settings.watermark.opacity")
+        self.wm_opacity = QSpinBox()
+        self.wm_opacity.setRange(5, 100)
+        self.wm_opacity.setSuffix(" %")
+        self.wm_opacity.setValue(self.settings.get("watermark.opacity"))
+        self.wm_opacity.valueChanged.connect(lambda v: self._set("watermark.opacity", v))
+        for w in (pos_label, self.wm_position, op_label, self.wm_opacity):
+            wm_row.addWidget(w)
+        wm_row.addStretch(1)
+        self._lock(self.wm_position, "watermark.position")
+        self._lock(self.wm_opacity, "watermark.opacity")
+        wm_card.body.addLayout(wm_row)
+        column.addWidget(wm_card)
 
         ocr_title = label(role="subtitle")
         self.rt.bind(ocr_title.setText, "settings.ocr")
@@ -339,6 +407,10 @@ class SettingsDialog(QDialog):
         self._update_preview()
         self.rt.on_change(self._update_preview)
         return page
+
+    def _retranslate_wm(self) -> None:
+        for i in range(self.wm_position.count()):
+            self.wm_position.setItemText(i, self.t(f"wm.{self.wm_position.itemData(i)}"))
 
     def _retranslate_ocr_combo(self) -> None:
         names = {"en": "English", "ro": "Română", "de": "Deutsch"}

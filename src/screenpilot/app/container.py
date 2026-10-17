@@ -23,7 +23,8 @@ from screenpilot.core.events import EventBus
 from screenpilot.core import diagnostics as diag_mod
 from screenpilot.core.diagnostics import Diagnostics
 from screenpilot.core.logging_setup import close_logging, configure_logging, set_level
-from screenpilot.core.paths import AppPaths, resolve_paths
+from screenpilot.core.paths import AppPaths, application_dir, resolve_paths
+from screenpilot.core.policy import Policy, candidate_paths, load_policy
 from screenpilot.core.services import ServiceRegistry
 from screenpilot.history import CaptureHistory
 from screenpilot.hotkeys import HotkeyManager
@@ -48,6 +49,7 @@ class ScreenPilotApp:
     shell: Shell
     history: CaptureHistory
     diagnostics: Diagnostics = field(default_factory=lambda: Diagnostics(None))
+    policy: Policy = field(default_factory=Policy)
     services: ServiceRegistry = field(default_factory=ServiceRegistry)
 
     @property
@@ -62,6 +64,10 @@ class ScreenPilotApp:
         *,
         ask_save_path: Callable[[Path], Path | None] | None = None,
     ) -> tuple[list[StepResult], WorkflowContext]:
+        if self.settings.get("watermark.enabled") and not result.metadata.get("watermarked"):
+            from screenpilot.editor.watermark import apply_watermark
+
+            result = apply_watermark(result, self.settings)
         ctx = WorkflowContext(
             result=result,
             output_dir=self.output_dir,
@@ -73,8 +79,11 @@ class ScreenPilotApp:
             jpeg_quality=self.settings.get("capture.jpeg_quality"),
             ask_save_path=ask_save_path,
         )
+        chosen = steps if steps is not None else self.settings.get("workflow.after_capture")
+        if not self.policy.allows("run_script"):
+            chosen = [s for s in chosen if s.get("id") != "run_script"]
         workflow = Workflow(
-            steps if steps is not None else self.settings.get("workflow.after_capture"),
+            chosen,
             stop_on_error=self.settings.get("workflow.stop_on_error"),
         )
         return workflow.run(ctx, self.actions), ctx
@@ -120,6 +129,7 @@ def create_app(
     shell: Shell | None = None,
     language: str | None = None,
     console_log: bool = False,
+    policy: Policy | None = None,
 ) -> ScreenPilotApp:
     paths = (paths or resolve_paths()).ensure()
     configure_logging(paths.log_dir, console=console_log)
@@ -128,6 +138,8 @@ def create_app(
     diagnostics = Diagnostics(paths.log_dir)
     diag_mod.set_current(diagnostics)
     settings = Settings(paths.settings_file).load()
+    policy = policy if policy is not None else load_policy(candidate_paths(application_dir()))
+    settings.locked = dict(policy.locked)
     if settings.get("diagnostics.verbose_logging"):
         set_level(logging.DEBUG)
     settings.add_listener(
@@ -156,8 +168,15 @@ def create_app(
         shell=shell or DefaultShell(),
         history=CaptureHistory(paths.data_dir, limit=settings.get("history.limit")).load(),
         diagnostics=diagnostics,
+        policy=policy,
     )
     app.history.attach(bus)
+    backend_obj = app.capture.backend
+    if hasattr(backend_obj, "include_cursor"):
+        backend_obj.include_cursor = bool(settings.get("capture.include_cursor"))
+        settings.add_listener(
+            lambda key, value: setattr(backend_obj, "include_cursor", bool(value)) if key == "capture.include_cursor" else None
+        )
     settings.add_listener(lambda key, value: app.history.set_limit(value) if key == "history.limit" else None)
     for key, instance in (
         (Settings, settings),

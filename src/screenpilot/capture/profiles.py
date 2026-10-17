@@ -37,6 +37,9 @@ MODES: tuple[CaptureMode, ...] = (
     CaptureMode("capture.copy", "copy", "#8764b8", "mode.copy"),
     CaptureMode("capture.pin", "pin", "#00b7c3", "mode.pin"),
     CaptureMode("ocr.region", "ocr", "#c19c00", "mode.ocr"),
+    CaptureMode("tools.color", "color", "#ffffff", "mode.color"),
+    CaptureMode("tools.measure", "measure", "#00cc6a", "mode.measure"),
+    CaptureMode("capture.interval", "interval", "#e81123", "mode.interval"),
 )
 BY_ID = {m.id: m for m in MODES}
 BY_ACTION = {m.action: m for m in MODES}

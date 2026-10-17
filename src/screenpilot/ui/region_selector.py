@@ -70,6 +70,9 @@ ACTION_SCROLL = "scroll"
 ACTION_STEPS = "steps"
 ACTION_EDIT = "edit"
 ACTION_OCR = "ocr"
+ACTION_COLOR = "color"
+ACTION_MEASURE = "measure"
+ACTION_INTERVAL = "interval"
 
 HANDLE_CURSORS = {
     "nw": Qt.CursorShape.SizeFDiagCursor,
@@ -101,6 +104,8 @@ class SelectorStyle:
     dim: int = 47  # percent
     magnifier: bool = True
     mode_label: str = ""  # shown next to the hint for non-default modes
+    pick_color: bool = False  # colour picker: a click picks the pixel, no selection
+    measure: bool = False  # ruler: size pill shows the diagonal, no action bar
 
 
 def match_screens(monitors: Sequence[Monitor], screens: Sequence[QScreen]) -> list[tuple[Monitor, QScreen]]:
@@ -217,7 +222,11 @@ class MonitorOverlay(QWidget):
         self.monitor = monitor
         self.translator = translator
         self.model = SelectionModel(
-            monitor.bounds, windows, handle_size=max(10, round(10 * monitor.scale)), frames=frames
+            monitor.bounds,
+            windows,
+            handle_size=max(10, round(10 * monitor.scale)),
+            frames=None if self.style.pick_color else frames,
+            snap=not self.style.pick_color,
         )
         self._frozen = frozen
         self._origin = frozen_origin
@@ -280,7 +289,7 @@ class MonitorOverlay(QWidget):
 
     def _place_action_bar(self) -> None:
         snap = self.model.snapshot()
-        if snap.state is not State.ADJUSTING or snap.selection is None:
+        if snap.state is not State.ADJUSTING or snap.selection is None or self.style.measure:
             self.action_bar.hide()
             return
         sel = self.to_logical(snap.selection)
@@ -306,6 +315,9 @@ class MonitorOverlay(QWidget):
                 self.cancelled.emit()
             return
         if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self.style.pick_color:
+            self.confirmed.emit(Rect(p.x, p.y, 1, 1), ACTION_COLOR)
             return
         self.pressed.emit(self)
         self.model.press(p)
@@ -398,6 +410,12 @@ class MonitorOverlay(QWidget):
             super().keyPressEvent(event)
 
     def _confirm(self, action: str = ACTION_DEFAULT) -> None:
+        if self.style.pick_color:
+            c = self.model.cursor
+            self.confirmed.emit(Rect(c.x, c.y, 1, 1), ACTION_COLOR)
+            return
+        if self.style.measure and action == ACTION_DEFAULT:
+            action = ACTION_MEASURE
         rect = self.model.result() or self.model.hover_rect()
         if rect is not None and not rect.is_empty:
             self.confirmed.emit(rect, action)
@@ -454,7 +472,11 @@ class MonitorOverlay(QWidget):
         p.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
 
     def _paint_size_pill(self, p: QPainter, rect: Rect, hole: QRectF, *, is_window: bool) -> None:
-        text = self.translator.t("selector.size", width=rect.width, height=rect.height)
+        if self.style.measure:
+            diagonal = round((rect.width**2 + rect.height**2) ** 0.5)
+            text = self.translator.t("measure.size", width=rect.width, height=rect.height, diagonal=diagonal)
+        else:
+            text = self.translator.t("selector.size", width=rect.width, height=rect.height)
         p.setFont(ui_font(9))
         metrics = p.fontMetrics()
         w, h = metrics.horizontalAdvance(text) + 20, metrics.height() + 8

@@ -51,6 +51,28 @@ class TrayIcon(QSystemTrayIcon):
             action.triggered.connect(lambda _=False, s=seconds: controller.capture_delayed(s))
             delayed.addAction(action)
         menu.addMenu(delayed)
+
+        tools = QMenu(menu)
+        rt.bind(tools.setTitle, "tray.menu.tools")
+        for action_id in ("tools.color", "tools.measure", "capture.interval", "capture.edit", "capture.steps", "ocr.region"):
+            action = QAction(tools)
+            rt.bind(action.setText, f"action.{action_id}")
+            action.triggered.connect(lambda _=False, a=action_id: controller.trigger(a, from_menu=True))
+            action.setData(action_id)
+            tools.addAction(action)
+        menu.addMenu(tools)
+        self._tool_actions = tools.actions()
+
+        self.stop_interval_action = QAction(menu)
+        self.stop_interval_action.triggered.connect(controller.stop_interval)
+        self.stop_interval_action.setVisible(False)
+        menu.addAction(self.stop_interval_action)
+        controller.interval_changed.connect(self._refresh_interval)
+
+        self.recent_menu = QMenu(menu)
+        rt.bind(self.recent_menu.setTitle, "tray.menu.recent")
+        self.recent_menu.aboutToShow.connect(self._fill_recent)
+        menu.addMenu(self.recent_menu)
         menu.addSeparator()
 
         for key, slot in (
@@ -103,7 +125,7 @@ class TrayIcon(QSystemTrayIcon):
     def _refresh(self) -> None:
         """Shortcut hints in the menu and tooltip follow bindings and language."""
         t = self.app.translator.t
-        for action in self._shortcut_actions:
+        for action in list(self._shortcut_actions) + list(getattr(self, "_tool_actions", [])):
             hotkey = self.app.hotkeys.binding(action.data())
             label = t(f"action.{action.data()}")
             action.setText(f"{label}\t{hotkey}" if hotkey else label)
@@ -114,6 +136,33 @@ class TrayIcon(QSystemTrayIcon):
 
     def refresh(self) -> None:
         self._refresh()
+
+    def _refresh_interval(self) -> None:
+        state = getattr(self.controller, "interval", None)
+        self.stop_interval_action.setVisible(bool(state))
+        if state:
+            self.stop_interval_action.setText(self.app.translator.t("interval.stop", done=state["done"]))
+
+    def _fill_recent(self) -> None:
+        from PySide6.QtGui import QIcon, QPixmap
+
+        self.recent_menu.clear()
+        entries = self.app.history.entries()[:10]
+        if not entries:
+            empty = self.recent_menu.addAction(self.app.translator.t("tray.menu.recent.empty"))
+            empty.setEnabled(False)
+            return
+        for entry in entries:
+            when = entry.created.astimezone().strftime("%H:%M")
+            action = self.recent_menu.addAction(f"{when}  ·  {entry.width}×{entry.height}  ·  {entry.title or entry.mode}")
+            if entry.thumbnail:
+                action.setIcon(QIcon(QPixmap(entry.thumbnail)))
+            action.triggered.connect(lambda _=False, e=entry: self._copy_entry(e))
+
+    def _copy_entry(self, entry) -> None:
+        result = self.controller.load_history_capture(entry)
+        if result is not None:
+            self.controller.copy_result(result)
 
     def _on_setting(self, key: str, _value) -> None:
         if key == "general.language":

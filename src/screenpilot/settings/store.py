@@ -48,6 +48,13 @@ DEFAULTS: dict[str, Any] = {
         "filename_template": "ScreenPilot_{date}_{time}_{mode}",
         "output_dir": "",
     },
+    "watermark": {
+        "enabled": False,
+        "text": "{user} · {date} {time}",
+        "position": "bottom-right",
+        "opacity": 55,
+        "size": 14,
+    },
     "workflow": {
         "after_capture": [
             {"id": "save"},
@@ -138,6 +145,7 @@ class Settings:
         self._lock = threading.RLock()
         self._listeners: list[Listener] = []
         self._data = copy.deepcopy(self._defaults)
+        self.locked: dict[str, Any] = {}  # key -> value forced by administrator policy
 
     # -- persistence ----------------------------------------------------------
     def load(self) -> "Settings":
@@ -192,7 +200,12 @@ class Settings:
             raise
 
     # -- access ---------------------------------------------------------------
+    def is_locked(self, key: str) -> bool:
+        return key in self.locked
+
     def get(self, key: str, default: Any = None) -> Any:
+        if key in self.locked:
+            return copy.deepcopy(self.locked[key])
         with self._lock:
             try:
                 return copy.deepcopy(_get(self._data, key))
@@ -200,6 +213,8 @@ class Settings:
                 return default
 
     def set(self, key: str, value: Any) -> None:
+        if key in self.locked:
+            raise ConfigurationError(f"{key} is locked by your administrator", message_key="error.locked")
         parts = key.split(".")
         try:
             expected = _get(self._defaults, key)

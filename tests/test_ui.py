@@ -428,6 +428,62 @@ class OcrUiTests(UiTestCase):
         editor.close()
 
 
+class ToolsTests(UiTestCase):
+    def test_colour_picker_copies_hex(self):
+        self.controller.trigger("tools.color")
+        self.assertTrue(wait_until(lambda: self.controller.selector.active))
+        overlay = self.controller.selector.overlays[0]
+        erp = self.window.bounds
+        approve = QPoint(erp.right - self.screen_rect.x - 60, erp.bottom - self.screen_rect.y - 30)
+        QTest.mouseMove(overlay, approve)
+        shot(overlay, "28_colour_picker")
+        QTest.mouseClick(overlay, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, approve)
+        self.assertTrue(wait_until(lambda: self.app.clipboard.text is not None))
+        self.assertEqual(self.app.clipboard.text, "#0078D4")  # the demo's accent button
+        self.assertFalse(self.controller.selector.active)
+
+    def test_ruler_copies_measurement_without_capturing(self):
+        self.controller.trigger("tools.measure")
+        self.assertTrue(wait_until(lambda: self.controller.selector.active))
+        overlay = self.controller.selector.overlays[0]
+        self.select(overlay, QPoint(100, 100), QPoint(399, 199))
+        self.assertFalse(overlay.action_bar.isVisible())
+        shot(overlay, "29_ruler")
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.app.clipboard.text is not None))
+        self.assertEqual(self.app.clipboard.text, "300 × 100 px")
+        self.assertEqual(self.captured, [])
+        self.assertEqual(self.app.history.entries(), [])
+
+    def test_interval_capture_runs_and_stops(self):
+        self.controller.start_interval(Rect(self.screen_rect.x, self.screen_rect.y, 100, 80), seconds=0.05, count=3)
+        self.assertTrue(wait_until(lambda: self.controller.interval is None, timeout=5))
+        self.assertTrue(wait_until(lambda: len(self.app.history.entries()) == 3, timeout=5))
+        self.assertIn("3", self.notes[-1][1])
+
+    def test_tray_tools_and_recent_menu(self):
+        from screenpilot.ui.tray import TrayIcon
+
+        tray = TrayIcon(self.controller)
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: self.app.history.entries()))
+        tray._fill_recent()
+        actions = tray.recent_menu.actions()
+        self.assertEqual(len(actions), 1)
+        self.app.clipboard.image = None
+        actions[0].trigger()
+        self.assertIsNotNone(self.app.clipboard.image)
+        self.assertIn("Ctrl+Shift+C", [a.text().split("\t")[-1] for a in tray._tool_actions])
+
+    def test_policy_disables_feature(self):
+        from screenpilot.core.policy import Policy
+
+        self.app.policy = Policy(disabled=frozenset({"scrolling"}), message="IT")
+        self.controller.trigger("capture.scrolling")
+        self.assertFalse(self.controller.selector.active)
+        self.assertIn("administrator", self.notes[-1][1])
+
+
 class StepEditorTests(UiTestCase):
     def test_number_steps_on_a_window_capture(self):
         overlay = self.open_selector()

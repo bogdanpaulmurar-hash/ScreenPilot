@@ -52,6 +52,29 @@ DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
 CWP_SKIPINVISIBLE = 0x0001
 
 
+class CURSORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hCursor", wintypes.HANDLE),
+        ("ptScreenPos", wintypes.POINT),
+    ]
+
+
+class ICONINFO(ctypes.Structure):
+    _fields_ = [
+        ("fIcon", wintypes.BOOL),
+        ("xHotspot", wintypes.DWORD),
+        ("yHotspot", wintypes.DWORD),
+        ("hbmMask", wintypes.HBITMAP),
+        ("hbmColor", wintypes.HBITMAP),
+    ]
+
+
+CURSOR_SHOWING = 0x00000001
+DI_NORMAL = 0x0003
+
+
 class MONITORINFOEXW(ctypes.Structure):
     _fields_ = [
         ("cbSize", wintypes.DWORD),
@@ -112,6 +135,21 @@ _sig(user32.WindowFromPoint, wintypes.HWND, wintypes.POINT)
 _sig(user32.GetAncestor, wintypes.HWND, wintypes.HWND, wintypes.UINT)
 _sig(user32.GetWindowRect, wintypes.BOOL, wintypes.HWND, ctypes.POINTER(wintypes.RECT))
 _sig(user32.GetWindowLongW, wintypes.LONG, wintypes.HWND, ctypes.c_int)
+_sig(user32.GetCursorInfo, wintypes.BOOL, ctypes.POINTER(CURSORINFO))
+_sig(user32.GetIconInfo, wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(ICONINFO))
+_sig(
+    user32.DrawIconEx,
+    wintypes.BOOL,
+    wintypes.HDC,
+    ctypes.c_int,
+    ctypes.c_int,
+    wintypes.HANDLE,
+    ctypes.c_int,
+    ctypes.c_int,
+    wintypes.UINT,
+    wintypes.HANDLE,
+    wintypes.UINT,
+)
 _sig(gdi32.CreateCompatibleDC, wintypes.HDC, wintypes.HDC)
 _sig(
     gdi32.CreateDIBSection,
@@ -194,6 +232,7 @@ class Win32CaptureBackend:
     name = "win32-gdi"
 
     def __init__(self) -> None:
+        self.include_cursor = False
         self.dpi_mode = enable_dpi_awareness()
         log.info("Win32 capture backend ready (DPI awareness: %s)", self.dpi_mode)
 
@@ -269,6 +308,8 @@ class Win32CaptureBackend:
                 mem_dc, 0, 0, rect.width, rect.height, screen_dc, rect.x, rect.y, SRCCOPY | CAPTUREBLT
             ):
                 raise _last_error("BitBlt")
+            if self.include_cursor:
+                self._draw_cursor(mem_dc, rect)
             gdi32.GdiFlush()
             data = ctypes.string_at(bits.value, rect.width * rect.height * 4)
             return CapturedImage(rect.width, rect.height, data)
@@ -280,6 +321,23 @@ class Win32CaptureBackend:
             if mem_dc:
                 gdi32.DeleteDC(mem_dc)
             user32.ReleaseDC(None, screen_dc)
+
+    @staticmethod
+    def _draw_cursor(mem_dc, rect: Rect) -> None:
+        info = CURSORINFO()
+        info.cbSize = ctypes.sizeof(CURSORINFO)
+        if not user32.GetCursorInfo(ctypes.byref(info)) or not (info.flags & CURSOR_SHOWING) or not info.hCursor:
+            return
+        icon = ICONINFO()
+        hot_x = hot_y = 0
+        if user32.GetIconInfo(info.hCursor, ctypes.byref(icon)):
+            hot_x, hot_y = icon.xHotspot, icon.yHotspot
+            for bmp in (icon.hbmMask, icon.hbmColor):
+                if bmp:
+                    gdi32.DeleteObject(bmp)
+        x = info.ptScreenPos.x - hot_x - rect.x
+        y = info.ptScreenPos.y - hot_y - rect.y
+        user32.DrawIconEx(mem_dc, x, y, info.hCursor, 0, 0, 0, None, DI_NORMAL)
 
     def cursor_position(self) -> Point:
         pt = wintypes.POINT()
