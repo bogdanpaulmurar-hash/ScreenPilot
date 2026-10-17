@@ -39,3 +39,7 @@ class HotkeyError(ScreenPilotError):
 
 class WorkflowError(ScreenPilotError):
     message_key = "error.workflow"
+
+
+class RecordingError(ScreenPilotError):
+    message_key = "error.recording"

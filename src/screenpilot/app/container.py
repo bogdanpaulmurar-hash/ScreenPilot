@@ -29,6 +29,7 @@ from screenpilot.core.services import ServiceRegistry
 from screenpilot.history import CaptureHistory
 from screenpilot.hotkeys import HotkeyManager
 from screenpilot.i18n import Translator
+from screenpilot.recording import RecordingService
 from screenpilot.platform import Clipboard, DefaultShell, Shell, default_clipboard
 from screenpilot.settings import Settings
 from screenpilot.workflow import ActionRegistry, StepResult, Workflow, WorkflowContext
@@ -51,6 +52,7 @@ class ScreenPilotApp:
     diagnostics: Diagnostics = field(default_factory=lambda: Diagnostics(None))
     policy: Policy = field(default_factory=Policy)
     services: ServiceRegistry = field(default_factory=ServiceRegistry)
+    recording: RecordingService | None = None
 
     @property
     def output_dir(self) -> Path:
@@ -111,8 +113,18 @@ class ScreenPilotApp:
                 "hotkey_status": {a: s.value for a, s in self.hotkeys.diagnostics().items()},
                 "backend": getattr(self.capture.backend, "name", "?"),
                 "dpi_mode": getattr(self.capture.backend, "dpi_mode", None),
+                "ffmpeg": self._ffmpeg_summary(),
             },
         )
+
+    def _ffmpeg_summary(self) -> dict | None:
+        try:
+            info = self.recording.ffmpeg() if self.recording else None
+        except Exception:  # noqa: BLE001 - diagnostics must never fail
+            return None
+        if info is None:
+            return None
+        return {"path": str(info.path), "version": info.version, "h264": sorted(e for e in info.encoders if "264" in e)}
 
     def _safe_monitors(self):
         try:
@@ -171,6 +183,14 @@ def create_app(
         policy=policy,
     )
     app.history.attach(bus)
+    app.recording = RecordingService(
+        settings,
+        backend=app.capture.backend,
+        bus=bus,
+        policy=policy,
+        default_dir=lambda: app.output_dir / "Recordings",
+        app_dir=application_dir(),
+    )
     backend_obj = app.capture.backend
     if hasattr(backend_obj, "include_cursor"):
         backend_obj.include_cursor = bool(settings.get("capture.include_cursor"))
@@ -186,6 +206,7 @@ def create_app(
         (HotkeyManager, hotkeys),
         (ActionRegistry, app.actions),
         (CaptureHistory, app.history),
+        (RecordingService, app.recording),
     ):
         app.services.register_instance(key, instance)
     return app

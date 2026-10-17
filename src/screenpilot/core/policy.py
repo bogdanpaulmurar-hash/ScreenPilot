@@ -11,7 +11,7 @@ Format::
         "capture.output_dir": "\\\\server\\share\\captures",
         "privacy.allow_network": false
       },
-      "disabled_features": ["run_script", "edge_bar", "scrolling", "recording", "ocr", "pin"],
+      "disabled_features": ["run_script", "edge_bar", "scrolling", "recording", "record_audio", "ocr", "pin"],
       "message": "Managed by Contoso IT"
     }
 
@@ -32,7 +32,17 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 POLICY_FILE = "policy.json"
-FEATURES = ("run_script", "edge_bar", "scrolling", "recording", "ocr", "pin", "watermark_off", "export_diagnostics")
+FEATURES = (
+    "run_script",
+    "edge_bar",
+    "scrolling",
+    "recording",
+    "record_audio",
+    "ocr",
+    "pin",
+    "watermark_off",
+    "export_diagnostics",
+)
 
 
 @dataclass(frozen=True)
