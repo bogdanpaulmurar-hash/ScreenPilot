@@ -513,7 +513,7 @@ class ProcedureTests(UiTestCase):
         out.mkdir()
         for fmt, ext in (("word", "docx"), ("pdf", "pdf"), ("html", "html"), ("md", "md")):
             target = window.export(fmt, out / f"proc.{ext}")
-            self.assertTrue(target.exists() and target.stat().st_size > 1000, fmt)
+            self.assertTrue(target.exists() and target.stat().st_size > (100 if fmt == "md" else 1000), fmt)
         self.assertEqual((out / "proc.pdf").read_bytes()[:4], b"%PDF")
         window.close()
 

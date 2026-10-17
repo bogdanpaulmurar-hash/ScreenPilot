@@ -42,16 +42,24 @@ def theme() -> Theme:
 def on_theme_changed(widget: QWidget, callback: Callable[[Theme], None]) -> None:
     """Call ``callback`` now and whenever the theme changes, while ``widget`` lives."""
     callback(theme())
-    if _manager is not None:
-        _manager.changed.connect(callback)
-        widget.destroyed.connect(lambda *_: _safe_disconnect(callback))
+    if _manager is None:
+        return
+
+    def guarded(t: Theme) -> None:
+        try:
+            callback(t)
+        except RuntimeError:  # the widget's C++ object is already gone
+            _safe_disconnect(guarded)
+
+    _manager.changed.connect(guarded)
+    widget.destroyed.connect(lambda *_: _safe_disconnect(guarded))
 
 
 def _safe_disconnect(callback) -> None:
     if _manager is not None:
         try:
             _manager.changed.disconnect(callback)
-        except (RuntimeError, TypeError):
+        except Exception:  # noqa: BLE001 - already disconnected or interpreter shutting down
             pass
 
 
