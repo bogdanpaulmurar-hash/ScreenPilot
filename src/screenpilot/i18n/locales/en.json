@@ -517,5 +517,6 @@
   "settings.rec.ffmpeg.missing": "FFmpeg not found — recordings are saved as GIF.",
   "settings.rec.ffmpeg.found": "FFmpeg {version} found: {path}",
   "cli.record.started": "Recording for {seconds} s (encoder: {encoder})… Ctrl+C stops earlier.",
-  "cli.record.saved": "Saved {path} ({seconds} s, {frames} frames, {fps} fps captured, {grab} ms per grab)"
+  "cli.record.saved": "Saved {path} ({seconds} s, {frames} frames, {fps} fps captured, {grab} ms per grab)",
+  "recording.retrying": "The video encoder could not start; trying another one…"
 }

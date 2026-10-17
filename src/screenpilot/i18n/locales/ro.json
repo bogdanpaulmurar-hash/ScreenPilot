@@ -517,5 +517,6 @@
   "settings.rec.ffmpeg.missing": "FFmpeg nu a fost găsit — înregistrările se salvează ca GIF.",
   "settings.rec.ffmpeg.found": "FFmpeg {version} găsit: {path}",
   "cli.record.started": "Se înregistrează {seconds} s (encoder: {encoder})… Ctrl+C oprește mai devreme.",
-  "cli.record.saved": "Salvat {path} ({seconds} s, {frames} cadre, {fps} fps capturate, {grab} ms per captură)"
+  "cli.record.saved": "Salvat {path} ({seconds} s, {frames} cadre, {fps} fps capturate, {grab} ms per captură)",
+  "recording.retrying": "Encoderul video nu a putut porni; se încearcă altul…"
 }

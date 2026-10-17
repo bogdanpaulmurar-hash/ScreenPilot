@@ -137,10 +137,12 @@ class FfmpegInfo:
     def works(self, encoder: str, runner: Runner = _run) -> bool:
         """Run a tiny test encode; results are cached per process."""
         if encoder not in self._verified:
+            # Same encoder options as a real recording: e.g. h264_mf only fails
+            # with -hw_encoding 1 on machines without a hardware encoder.
             args = [
                 str(self.path), "-hide_banner", "-loglevel", "error",
-                "-f", "lavfi", "-i", "color=c=black:s=256x256:r=5:d=0.4",
-                "-pix_fmt", "yuv420p", "-c:v", encoder, "-f", "null", "-",
+                "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=10:d=0.5",
+                *encoder_args(encoder, 23, 10, 320, 240), "-f", "null", "-",
             ]
             try:
                 ok = runner(args, timeout=PROBE_TIMEOUT).returncode == 0
@@ -150,6 +152,11 @@ class FfmpegInfo:
             log.info("Encoder %s %s", encoder, "works" if ok else "is not usable")
             self._verified[encoder] = ok
         return self._verified[encoder]
+
+    def mark_broken(self, encoder: str) -> None:
+        """Remember that an encoder failed during a real recording."""
+        log.warning("Encoder %s failed during recording; it will not be chosen again this session", encoder)
+        self._verified[encoder] = False
 
     def choose_encoder(self, mode: str = "auto", runner: Runner = _run) -> str:
         hardware = [e for e in HARDWARE_ENCODERS if e in self.encoders]

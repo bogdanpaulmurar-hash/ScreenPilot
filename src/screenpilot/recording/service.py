@@ -108,6 +108,7 @@ class RecordingService:
             raise RecordingError("Recording is disabled by your administrator", message_key="policy.feature_disabled")
         if self.busy:
             raise RecordingError("A recording is already running", message_key="recording.error.busy")
+        self._learn_from_last_failure()
         opts = options or self.options()
         output = output or self.output_path(opts.format)
         info = None if opts.is_gif else self.ffmpeg()
@@ -137,6 +138,14 @@ class RecordingService:
         recorder = Recorder(source, sink_factory, opts, bus=self.bus, encoder=encoder)
         self.current = recorder
         return recorder
+
+    def _learn_from_last_failure(self) -> None:
+        last = self.current
+        if last is None or last.error is None or self._ffmpeg is None:
+            return
+        if last.error.message_key == "recording.error.encoder_failed" and last.encoder not in ("", "gif", "libx264"):
+            self._ffmpeg.mark_broken(last.encoder)
+        self.current = None
 
     def start(self, rect: Rect, options: RecordingOptions | None = None, *, output: Path | None = None) -> Recorder:
         recorder = self.prepare(options, output=output)

@@ -52,10 +52,12 @@ capture reliability, hotkey ergonomics.
 | **M1 Desktop shell** ✅ | tray app, region selector overlay (magnifier, crosshair, window snapping, pixel coordinates), delayed capture countdown, settings window with live language switch, hotkey manager UI, first-run wizard, capture history | daily-usable replacement for Snipping Tool |
 | **M1.5 Modern UI** ✅ | Fluent theme light/dark, Capture Hub, edge capture bar, selector action bar, quick preview with drag-and-drop, pin to screen | looks and feels on par with Snagit |
 | **M1.6 Smart capture** ✅ | frame auto-detection with parent levels, scrolling capture (+ capture more), step numbering attached to elements, history size setting | procedures documented in a few clicks |
-| **M2 Editor + Steps** | annotation document model (arrows, shapes, text, callouts, step numbers, blur/pixelate, spotlight, crop), step capture, scrolling capture | can document a 10-step procedure |
-| **M3 OCR** | `OcrEngine` protocol, Windows OCR backend (EN/RO/DE), confidence, review, search, OCR→clipboard/TXT/MD | Screenshot→OCR→Clipboard in ≤ 2 clicks |
-| **M4 Documentation** | workflow capture sessions, document model, exports PDF/DOCX/HTML/MD, templates, help center, tutorials, tester mode, samples | one-click procedure document |
-| **M5 Recording** | screen/window/region recording, mic/system audio, cursor highlight, click effects | 1080p30 on a 4-year-old laptop |
+| **M1.7 Pro tools** ✅ | capture modes (hotkey + border colour + Enter action), timing journal + diagnostics export, colour picker, ruler, interval capture, watermark, IT policy, portable package | ready for a pilot group |
+| **M2 Editor + Steps** ✅ (v1) | annotation document model (arrows, shapes, text, callouts, step numbers, blur/pixelate, spotlight, crop), step capture, scrolling capture | can document a 10-step procedure |
+| **M3 OCR** ✅ (v1) | `OcrEngine` protocol, Windows OCR backend (EN/RO/DE), confidence, review, search, OCR→clipboard/TXT/MD | Screenshot→OCR→Clipboard in ≤ 2 clicks |
+| **M4 Documentation** ✅ (v1: procedures → DOCX/PDF/HTML/MD) | workflow capture sessions, document model, exports PDF/DOCX/HTML/MD, templates, help center, tutorials, tester mode, samples | one-click procedure document |
+| **M5 Recording** ✅ (v1) | region/window/screen to MP4 (external ffmpeg, hardware encoders) or GIF (built-in), mic + loopback audio, cursor highlight, click ripples, zoom, pause | 1080p30 on a 4-year-old laptop (to verify on real hardware) |
+| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in) | Loom-style tutorial in one take |
 | **M6 Intelligence** | UI element detection, anchored annotations, AI extension layer, Autopilot integration | anchor callouts to detected buttons |
 
 ## 4. Quick wins (next, in order)
@@ -75,4 +77,5 @@ hotkeys, live EN/RO settings, capture history.
 | UI cannot be tested in the cloud dev environment | Core is UI-free and tested; Windows CI; hands-on tester checklists per release |
 | Package size with Qt | `PySide6-Essentials`, lazy imports, exclude unused Qt modules when packaging |
 | Scrolling capture reliability across apps | Combine auto-scroll + image stitching with overlap detection; manual fallback |
-| Recording performance in Python | Delegate encoding to Windows Media Foundation or a bundled ffmpeg build (to be reviewed) |
+| Recording performance in Python | Encoding delegated to an external ffmpeg (hardware encoders); capture loop measured per session (`recording.session` timing); WGC source planned for 4K60 |
+| FFmpeg availability on locked-down PCs | Not bundled on purpose; GIF fallback always works; IT can deploy an approved build next to the exe or via policy-locked path |

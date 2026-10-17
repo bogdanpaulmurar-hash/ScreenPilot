@@ -499,13 +499,44 @@ class RecordingController(QObject):
         if event.name == "recording.finished":
             self._finished(event.payload["result"])
         elif event.name == "recording.failed":
+            failed = self.recorder
             self._teardown()
-            self._error(event.payload["error"])
+            if not self._retry_with_another_encoder(failed, event.payload["error"]):
+                self._error(event.payload["error"])
         elif event.name == "recording.cancelled":
             self._teardown()
             self.ctrl.notify.emit(self.t("app.name"), self.t("recording.cancelled"), False)
         elif event.name == "recording.state":
             self._tick()
+
+    def _retry_with_another_encoder(self, failed: "Recorder | None", error: ScreenPilotError) -> bool:
+        """An encoder that passed the probe can still fail on real frames (drivers,
+        session limits). Within the first seconds, restart once with the next one."""
+        if failed is None or getattr(failed, "_retried", False) or failed.options.is_gif:
+            return False
+        if error.message_key != "recording.error.encoder_failed" or failed.encoder in ("", "libx264"):
+            return False
+        if failed._frames > failed.options.frame_rate * 5:
+            return False  # too late: restarting would silently drop what was recorded
+        log.warning("Encoder %s failed at start; retrying with another encoder", failed.encoder)
+        self.ctrl.notify.emit(self.t("app.name"), self.t("recording.retrying"), False)
+        rect, fmt = failed.rect, failed.options.format
+        countdown = failed.options.countdown
+        service = self.app.recording
+        try:
+            from dataclasses import replace
+
+            service._learn_from_last_failure()
+            recorder = service.prepare(replace(failed.options, countdown=0))
+        except ScreenPilotError as exc:
+            self._error(exc)
+            return True
+        recorder._retried = True
+        self._pending = (recorder, rect)
+        self._show_frame(rect)
+        QTimer.singleShot(0, self._begin)
+        log.info("Retrying %s recording (countdown %s skipped)", fmt, countdown)
+        return True
 
     def _finished(self, result: "RecordingResult") -> None:
         self._teardown()

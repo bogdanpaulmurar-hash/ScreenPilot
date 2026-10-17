@@ -167,6 +167,15 @@ class FfmpegParsingTests(unittest.TestCase):
         self.assertEqual(calls, ["h264_nvenc", "h264_mf", "libx264"])  # probes are cached
         with self.assertRaises(RecordingError):
             FfmpegInfo(Path("ffmpeg"), "7.0", {"h264_nvenc"}).choose_encoder("auto", runner)
+        info.mark_broken("h264_mf")  # failed in a real recording: never chosen again
+        with self.assertRaises(RecordingError):
+            info.choose_encoder("auto", runner)
+
+    def test_probe_uses_the_real_encoder_options(self):
+        info = FfmpegInfo(Path("ffmpeg"), "7.0", {"h264_mf"})
+        seen = []
+        info.works("h264_mf", lambda args, timeout=0: seen.append(args) or subprocess.CompletedProcess(args, 0, "", ""))
+        self.assertIn("-hw_encoding", seen[0])
 
 
 class FakeProc:

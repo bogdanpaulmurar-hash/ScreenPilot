@@ -48,10 +48,10 @@ Status: M1 (desktop shell) — October 2026.
 | `ui` | Qt tray, region selector, countdown, settings, hotkeys, history, wizard | done |
 | `history` | recent captures + thumbnails | done |
 | `samples` | synthetic demo desktop for demos, tutorials, tests | done |
-| `editor` | annotation document model + Qt canvas | M2 |
-| `ocr` | `OcrEngine` protocol; Windows.Media.Ocr, Tesseract | M3 |
-| `docs_engine` | step/workflow documents; PDF/DOCX/HTML/MD export | M4 |
-| `recording` | screen/window/region video, audio, effects | M5 |
+| `editor` | annotation document model, steps, watermark + Qt canvas | done (v1) |
+| `ocr` | `OcrEngine` protocol; Windows.Media.Ocr, Tesseract; sensitive data | done (v1) |
+| `docs` | procedure sessions; DOCX/HTML/MD export (PDF via Qt) | done (v1) |
+| `recording` | frame source → effects → sink (ffmpeg MP4 / Pillow GIF), `RecordingService` | done (v1) |
 | `ai` | extension points: detectors, annotators, summarizers | M6 |
 
 ## Key decisions
@@ -67,6 +67,8 @@ Status: M1 (desktop shell) — October 2026.
 | ADR-7 | Workflow steps are JSON specs | Users, presets and Autopilot can chain actions without code |
 | ADR-8 | PySide6 (LGPL) for the UI, optional extra | Mature, official Qt binding; LGPL is enterprise-friendly when dynamically linked |
 | ADR-9 | Flat JSON locale files | Diff-friendly, translators need no tooling, new language = new file |
+| ADR-10 | Recording: ScreenPilot grabs frames, ffmpeg only encodes (stdin pipe) | Effects identical for MP4 and GIF; ffmpeg stays an optional, replaceable external process (no linking, IT chooses the build) |
+| ADR-11 | Constant frame rate by repeating frames; pause = new segment | Audio/video stay in sync with wall-clock time; segments join without re-encoding |
 
 ## Events (public)
 
@@ -78,6 +80,10 @@ Status: M1 (desktop shell) — October 2026.
 | `capture.cancelled` | — |
 | `editor.open_requested` | `result`, `path` |
 | `workflow.finished` | `results`, `path` |
+| `recording.state` | `state`, `elapsed` |
+| `recording.finished` | `result: RecordingResult` |
+| `recording.failed` | `error` |
+| `recording.saved` | `path`, `format`, `duration` |
 
 ## Autopilot integration
 
@@ -89,6 +95,10 @@ app = create_app()
 result = app.capture.capture_region(Rect(100, 100, 800, 600))
 steps, ctx = app.run_after_capture(result, [{"id": "save"}])
 app.bus.subscribe("capture.completed", lambda e: ...)
+
+recorder = app.recording.start(Rect(0, 0, 1280, 720))  # MP4 or GIF per settings
+...
+result = recorder.stop(wait=True)                      # RecordingResult(path, duration, ...)
 ```
 
 Only `screenpilot.app`, the engine services and the event names above are
