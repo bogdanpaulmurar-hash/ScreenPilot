@@ -68,7 +68,7 @@ class TrayIcon(QSystemTrayIcon):
 
         tools = QMenu(menu)
         rt.bind(tools.setTitle, "tray.menu.tools")
-        for action_id in ("procedure.toggle", "tools.color", "tools.measure", "capture.interval", "capture.edit", "capture.steps", "ocr.region"):
+        for action_id in ("procedure.toggle", "tools.color", "tools.measure", "capture.interval", "capture.edit", "capture.steps", "ocr.region", "app.open_editor"):
             action = QAction(tools)
             rt.bind(action.setText, f"action.{action_id}")
             action.triggered.connect(lambda _=False, a=action_id: controller.trigger(a, from_menu=True))
@@ -113,7 +113,7 @@ class TrayIcon(QSystemTrayIcon):
         menu.addMenu(language_menu)
 
         for key, slot in (
-            ("tray.menu.settings", controller.show_settings),
+            ("tray.menu.settings", lambda: controller.show_settings()),
             ("tray.menu.getting_started", controller.show_wizard),
             ("tray.menu.diagnostics", controller.export_diagnostics),
             ("tray.menu.about", self.show_about),
@@ -132,6 +132,9 @@ class TrayIcon(QSystemTrayIcon):
         rt.on_change(self._refresh)
         self._refresh()
         controller.notify.connect(self._on_notify)
+        controller.notify_action.connect(self._on_notify_action)
+        self._message_action = None
+        self.messageClicked.connect(self._on_message_clicked)
         self.activated.connect(self._on_activated)
         self._unsub = self.app.settings.add_listener(self._on_setting)
         controller.hotkeys_changed.connect(self._refresh)
@@ -195,8 +198,19 @@ class TrayIcon(QSystemTrayIcon):
             self.controller.show_hub()
 
     def _on_notify(self, title: str, body: str, is_error: bool) -> None:
+        self._message_action = None
         icon = QSystemTrayIcon.MessageIcon.Warning if is_error else QSystemTrayIcon.MessageIcon.Information
         self.showMessage(title, body, icon, NOTIFY_MS)
+
+    def _on_notify_action(self, title: str, body: str, is_error: bool, action) -> None:
+        """A message that does something when clicked (e.g. open the right settings page)."""
+        self._on_notify(title, body, is_error)
+        self._message_action = action
+
+    def _on_message_clicked(self) -> None:
+        action, self._message_action = self._message_action, None
+        if action is not None:
+            action()
 
     def show_about(self) -> None:
         t = self.app.translator.t

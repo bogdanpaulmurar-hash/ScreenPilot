@@ -32,10 +32,12 @@ class UnsupportedClipboard:
 
 class DefaultShell:
     def reveal(self, path: Path) -> None:
-        path = path.resolve()
+        path = Path(path).resolve()
         if sys.platform == "win32":
-            # Fixed executable + argument list: no shell interpretation of the path.
-            subprocess.Popen(["explorer.exe", f"/select,{path}"])  # noqa: S603,S607
+            from screenpilot.platform.win32_window import reveal_in_explorer
+
+            if not reveal_in_explorer(path):
+                raise OSError(f"Could not open Explorer for {path}")
         elif sys.platform == "darwin":
             subprocess.Popen(["open", "-R", str(path)])  # noqa: S603,S607
         else:

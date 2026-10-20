@@ -85,6 +85,7 @@ class UiTestCase(unittest.TestCase):
         self.controller = AppController(self.app, register_hotkeys=False)
         self.notes = []
         self.controller.notify.connect(lambda title, body, err: self.notes.append((title, body, err)))
+        self.controller.notify_action.connect(lambda title, body, err, _action: self.notes.append((title, body, err)))
         self.captured = []
         self.controller.captured.connect(lambda result, path, err: self.captured.append((result, path, err)))
 
@@ -625,9 +626,42 @@ class ControllerTests(UiTestCase):
         self.assertEqual(calls, [])
         self.assertIsNone(self.controller._countdown)
 
-    def test_open_editor_hotkey_without_capture_is_harmless(self):
-        self.controller.trigger("app.open_editor")
-        self.assertIn("future", self.notes[0][1])
+    def test_open_editor_without_any_capture_shows_the_picker(self):
+        picker = self.controller.edit_last_capture()
+        QTest.qWaitForWindowExposed(picker)
+        shot(picker, "50_editor_picker_empty")
+        self.assertFalse(picker.last_button.isEnabled())
+        self.assertEqual(picker.recent_buttons, [])
+        picker.close()
+        self.assertFalse(self.notes)
+
+    def test_editor_picker_last_recent_and_direct_mode(self):
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: self.app.history.entries()))
+        self.controller.trigger("capture.fullscreen")
+        self.assertTrue(wait_until(lambda: len(self.app.history.entries()) == 2))
+        picker = self.controller.edit_last_capture()
+        QTest.qWaitForWindowExposed(picker)
+        shot(picker, "51_editor_picker")
+        self.assertTrue(picker.last_button.isEnabled())
+        self.assertEqual(len(picker.recent_buttons), 2)
+        self.assertIs(picker.last, self.controller.last_result)
+        editor = picker.choose(picker.last)
+        self.assertIsNotNone(editor)
+        self.assertEqual(editor.result.image.width, self.controller.last_result.image.width)
+        editor.close()
+        # "last" mode skips the picker
+        self.app.settings.set("editor.open_mode", "last")
+        from screenpilot.ui.editor_window import EditorWindow
+
+        self.assertIsInstance(self.controller.edit_last_capture(), EditorWindow)
+
+    def test_copy_only_capture_is_the_last_capture(self):
+        overlay = self.open_selector()
+        self.select(overlay, QPoint(60, 60), QPoint(200, 160))
+        QTest.mouseClick(overlay.action_bar.buttons["copy"], Qt.MouseButton.LeftButton)
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertIs(self.controller.last_capture(), self.captured[0][0])
 
 
 class HubTests(UiTestCase):
@@ -929,6 +963,125 @@ class RecordingUiTests(UiTestCase):
         shot(dialog, "46_settings_recording_en")
         self.assertIn("FFmpeg", dialog.ffmpeg_status.text())
         dialog.close()
+
+
+
+class SelectorOptionTests(UiTestCase):
+    def test_without_action_bar_release_captures_immediately(self):
+        self.app.settings.set("selector.action_bar", False)
+        overlay = self.open_selector()
+        self.select(overlay, QPoint(50, 40), QPoint(249, 139))
+        self.assertTrue(wait_until(lambda: self.captured))
+        result, path, _ = self.captured[0]
+        self.assertEqual((result.region.width, result.region.height), (200, 100))
+        self.assertIsNotNone(path)  # Region still runs the after-capture actions
+        self.assertFalse(self.controller.selector.active)
+
+    def test_region_copy_only_setting(self):
+        self.app.settings.set("capture.region_action", "copy")
+        overlay = self.open_selector()
+        self.select(overlay, QPoint(60, 60), QPoint(200, 160))
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.captured))
+        result, path, _ = self.captured[0]
+        self.assertIsNone(path)
+        self.assertIs(self.app.clipboard.image, result.image)
+        self.assertEqual(self.app.history.entries(), [])
+
+    def test_settings_pages_show_the_new_options(self):
+        dialog = self.controller.show_settings("capture")
+        QApplication.processEvents()
+        self.assertEqual(dialog.nav.currentRow(), dialog.page_index["capture"])
+        shot(dialog, "52_settings_capture_new_options")
+        dialog.show_page("recording")
+        self.assertEqual(dialog.nav.currentRow(), dialog.page_index["recording"])
+        dialog.close()
+
+
+class EscapeTests(UiTestCase):
+    def test_escape_cancels_selector_even_without_focus(self):
+        self.open_selector()
+        self.assertEqual(self.controller.escape_pressed(), "selector")
+        self.assertFalse(self.controller.selector.active)
+        self.assertEqual(self.controller.escape_pressed(), "ignored")  # same press, already handled
+
+    def test_escape_cancels_countdown_and_stops_interval(self):
+        calls = []
+        self.controller.capture_delayed(5, then=lambda: calls.append(1))
+        self.assertEqual(self.controller.escape_pressed(), "countdown")
+        QTest.qWait(50)
+        self.assertIsNone(self.controller._countdown)
+        self.controller._last_esc_handled = 0.0
+        self.controller.start_interval(Rect(self.screen_rect.x, self.screen_rect.y, 50, 40), seconds=60, count=0)
+        self.assertEqual(self.controller.escape_pressed(), "interval")
+        self.assertIsNone(self.controller.interval)
+        self.assertEqual(calls, [])
+
+
+class RecordingEscapeTests(UiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.app.settings.set("recording.countdown", 0)
+        self.app.settings.set("recording.gif_fps", 10)
+        self.rec = self.controller.recording
+        self.answers = []
+        self.controller.ask_continue = lambda *a, **k: self.answers.pop(0)
+
+    def _start(self):
+        self.assertTrue(self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "gif"))
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+
+    def test_escape_pauses_then_continue_resumes(self):
+        self._start()
+        self.answers.append("continue")
+        self.assertEqual(self.controller.escape_pressed(), "recording.continue")
+        self.assertTrue(wait_until(lambda: self.rec.recorder.state.value == "recording"))
+        self.answers.append("stop")
+        self.controller._last_esc_handled = 0.0
+        self.assertEqual(self.controller.escape_pressed(), "recording.stop")
+        self.assertTrue(wait_until(lambda: self.rec.result_card is not None, timeout=20), self.notes)
+        self.assertTrue(self.rec.result_card.result.path.exists())
+
+    def test_escape_discard(self):
+        self._start()
+        self.answers.append("cancel")
+        self.assertEqual(self.controller.escape_pressed(), "recording.cancel")
+        self.assertTrue(wait_until(lambda: not self.rec.active, timeout=10))
+        self.assertIsNone(self.rec.result_card)
+
+    def test_escape_can_be_turned_off(self):
+        self.app.settings.set("recording.esc_pauses", False)
+        self._start()
+        self.assertEqual(self.controller.escape_pressed(), "recording.ignored")
+        self.assertEqual(self.rec.recorder.state.value, "recording")
+        self.rec.stop()
+        self.assertTrue(wait_until(lambda: self.rec.result_card is not None, timeout=20))
+
+
+class CopyAndCloseTests(UiTestCase):
+    def test_editor_copy_and_close_copies_without_saving(self):
+        result = self.app.capture.capture_window()
+        editor = self.controller.open_editor(result)
+        QTest.qWaitForWindowExposed(editor)
+        self.assertIn("copy_close", editor.buttons)
+        self.assertIn("Ctrl+Shift+Enter", editor.buttons["copy_close"].toolTip())
+        shot(editor, "53_editor_copy_close")
+        self.app.clipboard.image = None
+        QTest.mouseClick(editor.buttons["copy_close"], Qt.MouseButton.LeftButton)
+        self.assertIsNotNone(self.app.clipboard.image)
+        self.assertTrue(wait_until(lambda: not any(k.startswith("editor-") for k in self.controller._windows)))
+        QTest.qWait(100)
+        self.assertEqual(self.captured, [])  # Done (save) was not run
+        self.assertEqual(self.app.history.entries(), [])
+
+    def test_step_editor_copy_and_close(self):
+        result = self.app.capture.capture_window()
+        steps = self.controller.open_steps(result)
+        QTest.qWaitForWindowExposed(steps)
+        self.app.clipboard.image = None
+        steps.copy_and_close()
+        self.assertIsNotNone(self.app.clipboard.image)
+        self.assertTrue(wait_until(lambda: not any(k.startswith("steps-") for k in self.controller._windows)))
 
 
 if __name__ == "__main__":

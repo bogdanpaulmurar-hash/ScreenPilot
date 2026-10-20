@@ -66,6 +66,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     autostarted = "--autostart" in args
     set_app_user_model_id()  # own taskbar button + icon, separate from other pythonw apps
+    from screenpilot.platform.win32_window import disable_ghosting
+
+    disable_ghosting()  # a busy overlay must never be swapped for a "Not responding" ghost
     qt_app = QApplication.instance() or QApplication(list(argv) if argv is not None else sys.argv)
     qt_app.setApplicationName("ScreenPilot")
     qt_app.setOrganizationName("ScreenPilot")

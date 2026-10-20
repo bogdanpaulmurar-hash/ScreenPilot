@@ -1,6 +1,7 @@
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -32,6 +33,12 @@ from screenpilot.samples import DemoBackend
 from screenpilot.settings import Settings
 
 FFMPEG = shutil.which("ffmpeg")
+
+
+def ImageChops_difference(a, b):  # noqa: N802 - small local helper
+    from PIL import ImageChops
+
+    return ImageChops.difference(a, b)
 
 
 def bgra(width, height, color=(40, 40, 40)):
@@ -249,6 +256,51 @@ class GifSinkTests(unittest.TestCase):
                 self.assertEqual(gif.n_frames, 3)
                 self.assertEqual(gif.info.get("loop"), 0)
 
+    def test_full_resolution_frames_are_pixel_exact_and_streamed(self):
+        """Patches of changed pixels are written as they arrive and decode to the exact frames."""
+        from PIL import ImageDraw
+
+        with tempfile.TemporaryDirectory() as tmp:
+            w, h = 480, 270
+            base = Image.new("RGB", (w, h), "white")
+            draw = ImageDraw.Draw(base)
+            for y in range(0, h, 18):
+                draw.text((6, y), f"Row {y} · 0123456789 ABCDEF", fill=(25, 25, 25))
+            draw.rectangle((300, 60, 420, 200), fill=(30, 120, 200))
+            frames = []
+            for i in range(6):
+                frame = base.copy()
+                ImageDraw.Draw(frame).ellipse((20 + i * 30, 120, 44 + i * 30, 144), fill=(255, 200, 0))
+                frames.append(frame)
+            out = Path(tmp) / "f.gif"
+            sink = PillowGifSink(out, width=w, height=h, fps=10)
+            for i, frame in enumerate(frames):
+                r, g, b = frame.split()
+                raw = Image.merge("RGBA", (b, g, r, Image.new("L", (w, h), 255))).tobytes()
+                sink.write(raw, i * 0.1)
+            self.assertTrue(sink.part.exists())  # streamed while recording
+            self.assertFalse(out.exists())
+            sink.finish()
+            self.assertFalse(sink.part.exists())
+            with Image.open(out) as gif:
+                self.assertEqual((gif.size, gif.n_frames), ((w, h), 6))
+                for i, expected in enumerate(frames):
+                    gif.seek(i)
+                    diff = ImageChops_difference(gif.convert("RGB"), expected)
+                    self.assertIsNone(diff.getbbox(), f"frame {i} differs")
+                gif.seek(1)
+                self.assertEqual(gif.info.get("duration"), 100)
+
+    def test_abort_removes_partial_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sink = PillowGifSink(Path(tmp) / "x.gif", width=64, height=64, fps=10)
+            sink.write(bgra(64, 64, (10, 20, 30)), 0.0)
+            sink.write(bgra(64, 64, (90, 20, 30)), 0.1)
+            self.assertTrue(sink.part.exists())
+            sink.abort()
+            self.assertFalse(sink.part.exists())
+            self.assertFalse(sink.output.exists())
+
     def test_memory_cap_marks_the_sink_full(self):
         with tempfile.TemporaryDirectory() as tmp:
             sink = PillowGifSink(Path(tmp) / "a.gif", width=64, height=64, fps=10)
@@ -330,7 +382,11 @@ class RecorderTests(unittest.TestCase):
 class ServiceTests(unittest.TestCase):
     def test_mp4_without_ffmpeg_is_a_clear_error(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch("screenpilot.recording.ffmpeg.shutil.which", return_value=None):
-            service = RecordingService(settings(Path(tmp), ffmpeg_path=str(Path(tmp) / "missing.exe")), default_dir=lambda: Path(tmp))
+            service = RecordingService(
+                settings(Path(tmp), ffmpeg_path=str(Path(tmp) / "missing.exe")),
+                default_dir=lambda: Path(tmp),
+                ffmpeg_search_dirs=lambda: [],  # CI machines may have ffmpeg in the package-manager folders
+            )
             self.assertIsNone(service.ffmpeg())
             with self.assertRaises(RecordingError) as ctx:
                 service.prepare()
@@ -351,6 +407,45 @@ class ServiceTests(unittest.TestCase):
             first.write_bytes(b"")
             self.assertNotEqual(service.output_path("mp4", now=None), first)
             self.assertEqual(first.parent, Path(tmp) / "videos")
+
+
+    def test_ffmpeg_installed_while_running_is_found_without_restart(self):
+        """A missing ffmpeg is not cached: installing it later works at the next recording."""
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("screenpilot.recording.ffmpeg.shutil.which", return_value=None):
+            folder = Path(tmp) / "WinGet" / "Links"
+            probed = []
+
+            def prober(path):
+                probed.append(path)
+                return FfmpegInfo(path, "7.1")
+
+            service = RecordingService(
+                settings(Path(tmp)), default_dir=lambda: Path(tmp), ffmpeg_prober=prober, ffmpeg_search_dirs=lambda: [folder]
+            )
+            self.assertIsNone(service.ffmpeg())
+            folder.mkdir(parents=True)
+            exe = folder / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+            exe.write_bytes(b"")
+            info = service.ffmpeg()
+            self.assertIsNotNone(info)
+            self.assertEqual(info.path, exe)
+            self.assertIs(service.ffmpeg(), info)  # found: cached, probed once
+            self.assertEqual(len(probed), 1)
+            exe.unlink()
+            self.assertIsNone(service.ffmpeg())  # uninstalled: noticed too
+
+    def test_candidate_paths_order_and_configured_folder(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("screenpilot.recording.ffmpeg.shutil.which", return_value=None):
+            from screenpilot.recording.ffmpeg import candidate_paths
+
+            exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+            configured = Path(tmp) / "tools"
+            configured.mkdir()
+            paths = candidate_paths(f'"{configured}"', Path(tmp) / "app", search_dirs=lambda: [Path(tmp) / "winget", Path(tmp) / "winget"])
+            self.assertEqual(paths[0], configured / exe)  # a folder (quotes stripped) means the exe inside it
+            self.assertEqual(paths[1], Path(tmp) / "app" / exe)
+            self.assertEqual(paths[-1], Path(tmp) / "winget" / exe)
+            self.assertEqual(len(paths), len(set(paths)))  # no duplicates
 
 
 class CliRecordTests(unittest.TestCase):

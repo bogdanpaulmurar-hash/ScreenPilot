@@ -80,8 +80,9 @@ class CaptureHub(QWidget):
         titles.addWidget(tagline)
         header.addLayout(titles, 1)
         for icon_name, key, slot in (
+            ("edit", "action.app.open_editor", controller.edit_last_capture),
             ("history", "tray.menu.history", controller.show_history),
-            ("settings", "settings.title", controller.show_settings),
+            ("settings", "settings.title", lambda: controller.show_settings()),
         ):
             button = IconButton(icon_name, size=20)
             rt.bind(button.setToolTip, key)

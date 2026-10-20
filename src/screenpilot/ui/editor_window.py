@@ -8,7 +8,7 @@ crop. Rendering always goes through :func:`screenpilot.editor.document.render`
 Keyboard: V select · A arrow · L line · R rectangle · O ellipse · H highlight
 · T text · B blur · X pixelate · N steps · S spotlight · C crop ·
 Del delete · Ctrl+Z / Ctrl+Y undo/redo · Ctrl+C copy · Ctrl+S save as ·
-Enter done · Esc deselect.
+Ctrl+Shift+Enter copy & close · Enter done · Esc deselect.
 """
 
 from __future__ import annotations
@@ -346,11 +346,15 @@ class EditorWindow(QWidget):
         save_dir: Path,
         settings=None,
         ocr_engine: Callable[[], object] | None = None,
+        on_copy_close: Callable[[CaptureResult], None] | None = None,
     ) -> None:
         super().__init__(None)
         self.result = result
         self.t = translator.t
         self.on_done = on_done
+        # Called with the edited result by "Copy & close" when the edit must be
+        # kept somewhere (a procedure step); a plain capture is only copied.
+        self.on_copy_close = on_copy_close
         self._copy = copy
         self.save_dir = save_dir
         self.settings = settings
@@ -451,16 +455,21 @@ class EditorWindow(QWidget):
         bottom = QHBoxLayout()
         self.hint = label(role="caption")
         bottom.addWidget(self.hint, 1)
-        for key, slot, accent in (
-            ("editor.copy", self.copy, False),
-            ("editor.save_as", self.save_as, False),
-            ("editor.done", self.done, True),
+        self.buttons: dict[str, QPushButton] = {}
+        for key, slot, accent, tip in (
+            ("editor.copy", self.copy, False, "editor.copy.tip"),
+            ("editor.copy_close", self.copy_and_close, False, "editor.copy_close.tip"),
+            ("editor.save_as", self.save_as, False, None),
+            ("editor.done", self.done, True, "editor.done.tip"),
         ):
             button = QPushButton()
             button.setProperty("accent", accent)
             rt.bind(button.setText, key)
+            if tip:
+                rt.bind(button.setToolTip, tip)
             button.clicked.connect(slot)
             bottom.addWidget(button)
+            self.buttons[key.split(".", 1)[1]] = button
 
         body = QHBoxLayout()
         body.addLayout(tools_col)
@@ -477,6 +486,7 @@ class EditorWindow(QWidget):
         QShortcut(QKeySequence.StandardKey.Delete, self, activated=self.canvas.delete_selected)
         QShortcut(QKeySequence.StandardKey.Copy, self, activated=self.copy)
         QShortcut(QKeySequence.StandardKey.Save, self, activated=self.save_as)
+        QShortcut(QKeySequence("Ctrl+Shift+Return"), self, activated=self.copy_and_close)
         QShortcut(QKeySequence(Qt.Key.Key_Return), self, activated=self.done)
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=lambda: self.canvas.select(None))
         self.canvas.selection_changed.connect(self._on_selection)
@@ -602,17 +612,28 @@ class EditorWindow(QWidget):
         target = Path(path)
         return self.rendered().save(target, image_format=target.suffix.lstrip(".") or "png")
 
-    def done(self) -> None:
+    def edited_result(self) -> CaptureResult:
         image = self.rendered()
         region = self.result.region
         if self.doc.crop is not None:
             c = self.doc.crop
             region = Rect(region.x + c.x, region.y + c.y, c.width, c.height)
-        result = CaptureResult(
+        return CaptureResult(
             image=image,
             mode=self.result.mode,
             region=region,
             metadata={**self.result.metadata, "edited": True, "shapes": len(self.doc.shapes)},
         )
+
+    def copy_and_close(self) -> None:
+        """Copy the edited image to the clipboard and close (nothing is saved)."""
+        result = self.edited_result()
+        self._copy(result.image)
+        self.close()
+        if self.on_copy_close is not None:
+            self.on_copy_close(result)
+
+    def done(self) -> None:
+        result = self.edited_result()
         self.close()
         self.on_done(result)

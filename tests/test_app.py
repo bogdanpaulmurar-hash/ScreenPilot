@@ -80,7 +80,9 @@ class CliTests(unittest.TestCase):
     def test_version(self):
         code, out, _, _ = self.run_cli("version")
         self.assertEqual(code, 0)
-        self.assertIn("ScreenPilot 0.5.0", out)
+        from screenpilot import __version__
+
+        self.assertIn(f"ScreenPilot {__version__}", out)
 
     def test_monitors_in_romanian(self):
         code, out, _, _ = self.run_cli("--lang", "ro", "monitors")

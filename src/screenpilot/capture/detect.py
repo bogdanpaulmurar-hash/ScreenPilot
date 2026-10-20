@@ -13,10 +13,19 @@ How it works (fast enough to run on every mouse pause, pure Pillow + bytes):
    edge pixels through that row/column) — text glyphs are too short.
 3. Combine the nearest candidate lines on each side and keep the rectangles
    whose four sides are (almost) continuous lines.
+
+Grids (Excel, Google Sheets, ERP tables) are the worst case: every row and
+column line is a real line, so the four candidate lists are full and the
+naive search is 48⁴ ≈ 5 million combinations — seconds per mouse position,
+which froze the selector. The search therefore tries combinations nearest
+first (small boxes before big ones), remembers every side test, stops after
+enough boxes, and never runs longer than :data:`SEARCH_BUDGET_S`.
 """
 
 from __future__ import annotations
 
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from PIL import Image, ImageChops
@@ -37,6 +46,9 @@ ROUNDING_PX = 10
 MERGE_PX = 3  # boxes this close are the same frame (double / anti-aliased borders)
 MAX_LEVELS = 6
 ON = 0xFF
+SEARCH_BUDGET_S = 0.025  # per mouse position; the selector repaints at ~60 Hz
+MAX_BOXES = 160  # boxes collected before the nesting chain is built
+CACHE_POINTS = 64
 
 
 @dataclass
@@ -120,21 +132,7 @@ class EdgeDetector:
         bottoms = self._scan(
             m.h_cols, x * m.height, y, min(m.height - 2, y + MAX_SCAN), 1, lambda r: probe(self._h_line, r, x)
         )
-        found: dict[tuple[int, int, int, int], Rect] = {}
-        # Prune progressively (pairs, then top side, then bottom side) to keep it fast.
-        for l in lefts:
-            for r in rights:
-                if r - l < MIN_BOX:
-                    continue
-                for t in tops:
-                    if not self._h_side(t, l, r):
-                        continue
-                    for b in bottoms:
-                        if b - t < MIN_BOX or not self._h_side(b, l, r):
-                            continue
-                        if self._v_side(l, t, b) and self._v_side(r, t, b):
-                            rect = Rect(l + 1, t + 1, r - l, b - t)
-                            found[(rect.x, rect.y, rect.width, rect.height)] = rect
+        found = self._search(lefts, rights, tops, bottoms)
         boxes = sorted(found.values(), key=lambda r: r.area)
         # Clean nesting chain: each box contains the previous one; near-identical
         # boxes (a 1 px border seen from both sides) collapse into the outer one.
@@ -147,6 +145,61 @@ class EdgeDetector:
                 continue
             chain.append(box)
         return chain[:MAX_LEVELS]
+
+    def _search(self, lefts: list[int], rights: list[int], tops: list[int], bottoms: list[int]) -> dict:
+        """Boxes made of one candidate per side, nearest combinations first, within a time budget."""
+        found: dict[tuple[int, int, int, int], Rect] = {}
+        deadline = time.perf_counter() + SEARCH_BUDGET_S
+        h_cache: dict[tuple[int, int, int], bool] = {}
+        v_cache: dict[tuple[int, int, int], bool] = {}
+
+        def h_side(y: int, l: int, r: int) -> bool:
+            key = (y, l, r)
+            if key not in h_cache:
+                h_cache[key] = self._h_side(y, l, r)
+            return h_cache[key]
+
+        def v_side(x: int, t: int, b: int) -> bool:
+            key = (x, t, b)
+            if key not in v_cache:
+                v_cache[key] = self._v_side(x, t, b)
+            return v_cache[key]
+
+        # Pairs grouped by "distance rank" (index of the left + index of the right
+        # candidate, nearest = 0). Combinations are visited in order of the total
+        # rank of all four sides, so small boxes around the point come first and
+        # every nesting level is reached early, whatever the time budget allows.
+        # Both edges of a 1 px line are candidates; they share one rank.
+        rank_l, rank_r, rank_t, rank_b = (_ranks(c) for c in (lefts, rights, tops, bottoms))
+        horizontal: dict[int, list[tuple[int, int]]] = {}
+        for i, l in enumerate(lefts):
+            for j, r in enumerate(rights):
+                if r - l >= MIN_BOX:
+                    horizontal.setdefault(rank_l[i] + rank_r[j], []).append((l, r))
+        vertical: dict[int, list[tuple[int, int]]] = {}
+        for i, t in enumerate(tops):
+            for j, b in enumerate(bottoms):
+                if b - t >= MIN_BOX:
+                    vertical.setdefault(rank_t[i] + rank_b[j], []).append((t, b))
+        if not horizontal or not vertical:
+            return found
+        checks = 0
+        for total in range(max(horizontal) + max(vertical) + 1):
+            for h_rank in range(total + 1):
+                h_pairs, v_pairs = horizontal.get(h_rank), vertical.get(total - h_rank)
+                if not h_pairs or not v_pairs:
+                    continue
+                for l, r in h_pairs:
+                    for t, b in v_pairs:
+                        checks += 1
+                        if checks & 0xFF == 0 and time.perf_counter() > deadline:
+                            return found
+                        if h_side(t, l, r) and h_side(b, l, r) and v_side(l, t, b) and v_side(r, t, b):
+                            rect = Rect(l + 1, t + 1, r - l, b - t)
+                            found[(rect.x, rect.y, rect.width, rect.height)] = rect
+                            if len(found) >= MAX_BOXES:
+                                return found
+        return found
 
     def _h_side(self, y: int, l: int, r: int) -> bool:
         """Horizontal side at edge-row y spanning the interior l+1..r and reaching both corners."""
@@ -162,6 +215,20 @@ class EdgeDetector:
             and self._v_line(x, t + 1, t + CORNER) >= CORNER_COVERAGE
             and self._v_line(x, b - CORNER, b) >= CORNER_COVERAGE
         )
+
+
+def _ranks(candidates: list[int]) -> list[int]:
+    """Distance rank of each candidate (nearest first); candidates closer than
+    MERGE_PX to the previous one are the same line and share its rank."""
+    ranks: list[int] = []
+    rank = -1
+    previous: int | None = None
+    for c in candidates:
+        if previous is None or abs(c - previous) > MERGE_PX:
+            rank += 1
+        ranks.append(rank)
+        previous = c
+    return ranks
 
 
 def _required(length: int) -> float:
@@ -187,7 +254,17 @@ class FrameFinder:
 
         with diagnostics.timed("detect.build", width=image.width, height=image.height):
             self.detector = EdgeDetector(image)
+        self._cache: OrderedDict[Point, list[Rect]] = OrderedDict()
 
     def boxes_at(self, p: Point) -> list[Rect]:
+        """Boxes around ``p`` (desktop coordinates); recent points are remembered."""
+        cache = self._cache
+        if p in cache:
+            cache.move_to_end(p)
+            return list(cache[p])
         local = Point(p.x - self.origin.x, p.y - self.origin.y)
-        return [b.translate(self.origin.x, self.origin.y) for b in self.detector.boxes_at(local)]
+        boxes = [b.translate(self.origin.x, self.origin.y) for b in self.detector.boxes_at(local)]
+        cache[p] = boxes
+        if len(cache) > CACHE_POINTS:
+            cache.popitem(last=False)
+        return list(boxes)

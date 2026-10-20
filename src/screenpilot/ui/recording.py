@@ -392,7 +392,14 @@ class RecordingController(QObject):
                 self._error(exc)
                 return False
             log.info("ffmpeg missing: falling back to GIF")
-            self.ctrl.notify.emit(self.t("recording.no_ffmpeg.title"), self.t("recording.no_ffmpeg.body"), False)
+            if self.app.settings.get("recording.gif_fallback_notice"):
+                # Clicking the message opens Settings › Recording (FFmpeg status, path, install hint).
+                self.ctrl.notify_action.emit(
+                    self.t("recording.no_ffmpeg.title"),
+                    self.t("recording.no_ffmpeg.body"),
+                    False,
+                    lambda: self.ctrl.show_settings("recording"),
+                )
             try:
                 recorder = service.prepare(options.with_format("gif"))
             except ScreenPilotError as again:
@@ -404,6 +411,7 @@ class RecordingController(QObject):
         self._pending = (recorder, rect)
         self._show_frame(rect)
         self.changed.emit()
+        self.ctrl.watch_escape()
         seconds = recorder.options.countdown
         if seconds > 0:
             self._countdown = CountdownOverlay(seconds, self.app.translator)
@@ -486,6 +494,35 @@ class RecordingController(QObject):
             self._countdown.cancel()
         elif self.recorder is not None:
             self.recorder.cancel()
+
+    def escape(self) -> str:
+        """Esc during a recording: cancel the countdown, or pause and ask
+        continue / stop and save / discard (``recording.esc_pauses``)."""
+        if self._countdown is not None:
+            self._countdown.cancel()
+            return "recording.countdown"
+        recorder = self.recorder
+        if recorder is None or not recorder.active:
+            return "none"
+        if not self.app.settings.get("recording.esc_pauses"):
+            return "recording.ignored"
+        from screenpilot.recording import State
+
+        was_paused = recorder.state == State.PAUSED
+        if not was_paused:
+            recorder.pause()
+            self._tick()
+        answer = self.ctrl.ask_continue("recording.paused.title", "recording.paused.body", stop_key="recording.paused.stop")
+        if self.recorder is not recorder or not recorder.active:
+            return "recording.ended"  # it finished on its own meanwhile (time limit)
+        if answer == "stop":
+            self.stop()
+        elif answer == "cancel":
+            self.cancel()
+        elif not was_paused:
+            recorder.resume()
+            self._tick()
+        return f"recording.{answer}"
 
     def _tick(self) -> None:
         recorder = self.recorder

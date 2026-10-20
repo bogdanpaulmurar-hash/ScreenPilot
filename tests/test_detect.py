@@ -76,3 +76,47 @@ class SelectionFramesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpreadsheetGridTests(unittest.TestCase):
+    """Excel / Google Sheets: every row and column line is a candidate side.
+
+    The exhaustive search took ~13 s per mouse position on a 1080p grid and
+    froze the selector; it must now stay within a few tens of milliseconds.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PIL import Image, ImageDraw
+
+        from screenpilot.capture import CapturedImage
+
+        img = Image.new("RGB", (1920, 1080), "white")
+        draw = ImageDraw.Draw(img)
+        for x in range(40, 1920, 64):
+            draw.line([(x, 150), (x, 1079)], fill=(212, 212, 212))
+        for y in range(150, 1080, 20):
+            draw.line([(40, y), (1919, y)], fill=(212, 212, 212))
+        cls.finder = FrameFinder(CapturedImage.from_pil(img), Point(0, 0))
+
+    def test_cell_is_found_fast(self):
+        started = time.perf_counter()
+        boxes = self.finder.boxes_at(Point(500, 500))
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 0.5, f"frame search took {elapsed * 1000:.0f} ms")
+        self.assertTrue(boxes)
+        cell = boxes[0]
+        self.assertEqual((cell.x, cell.y, cell.width, cell.height), (488, 490, 65, 21))  # one cell, incl. its grid lines
+        for inner, outer in zip(boxes, boxes[1:]):
+            self.assertEqual(outer.intersect(inner), inner)
+
+    def test_every_point_stays_fast(self):
+        started = time.perf_counter()
+        for x in range(60, 1900, 97):
+            self.finder.boxes_at(Point(x, 300 + x % 700))
+        per_point = (time.perf_counter() - started) / len(range(60, 1900, 97))
+        self.assertLess(per_point, 0.1)
+
+    def test_repeated_point_is_cached(self):
+        first = self.finder.boxes_at(Point(700, 800))
+        self.assertEqual(self.finder.boxes_at(Point(700, 800)), first)
