@@ -159,6 +159,13 @@ class RegionSelectorTests(UiTestCase):
         self.assertEqual(self.app.history.entries(), [])
 
     def test_click_on_window_snaps(self):
+        from unittest import mock
+
+        # Frame detection has a 25 ms budget per mouse move; a slow CI runner can stop it
+        # early and propose another frame. Give the test all the time it needs.
+        patcher = mock.patch("screenpilot.capture.detect.SEARCH_BUDGET_S", 5.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         overlay = self.open_selector()
         b = self.window.bounds
         inside = QPoint(b.x - self.screen_rect.x + b.width // 2, b.y - self.screen_rect.y + 60)
@@ -1005,7 +1012,8 @@ class RecordingUiTests(UiTestCase):
         self.assertEqual(len(window.project.annotations), 1)
         ann = window.project.annotations[0]
         self.assertAlmostEqual(ann.start, 1.0, delta=0.01)
-        self.assertAlmostEqual(ann.end - ann.start, window.canvas.duration_s, delta=0.01)
+        expected = min(window.canvas.duration_s, window.project.duration - 1.0)  # clipped at the end of the clip
+        self.assertAlmostEqual(ann.end - ann.start, expected, delta=0.01)
         window.set_tool("blur")
         QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=center - QPoint(60, 40))
         QTest.mouseMove(canvas, center - QPoint(10, 10))

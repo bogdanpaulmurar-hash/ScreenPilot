@@ -162,6 +162,7 @@ class GifEditTests(unittest.TestCase):
             self.assertAlmostEqual(edited.info.duration, 1.0, delta=0.06)
             self.assertTrue(close(edited.frame(0.4).getpixel((68, 60)), RED))  # 0.8 s in the source
             self.assertFalse(close(edited.frame(0.05).getpixel((68, 60)), RED))
+            edited.close()
             self.assertIsNotNone(step)
             self.assertTrue(src.exists())  # the source is never touched
 

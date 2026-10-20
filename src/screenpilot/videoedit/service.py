@@ -67,9 +67,14 @@ class VideoEditService:
 
     def preview(self, project: VideoProject, t: float, reader=None, painter: AnnotationPainter | None = None) -> Image.Image:
         """Frame at source time ``t`` with the annotations visible at that time."""
+        own = reader is None
         reader = reader or self.reader(project)
         painter = painter or AnnotationPainter(project.info.width, project.info.height)
-        return painter.compose(reader.frame(t), project.active_at(t), project.step_numbers())
+        try:
+            return painter.compose(reader.frame(t), project.active_at(t), project.step_numbers())
+        finally:
+            if own and hasattr(reader, "close"):
+                reader.close()  # Windows keeps an open file locked
 
     # -- export ---------------------------------------------------------------------
     @staticmethod
