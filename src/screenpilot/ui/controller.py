@@ -138,6 +138,7 @@ class AppController(QObject):
             "record.pause": lambda: self.recording.toggle_pause(),
             "record.zoom": lambda: self.recording.toggle_zoom(),
             "record.draw": lambda: self.recording.toggle_draw(),
+            "app.edit_video": lambda: self.open_video_editor(),
         }
         if register_hotkeys:
             self.register_hotkeys()
@@ -175,6 +176,7 @@ class AppController(QObject):
         "record.video": "recording",
         "record.gif": "recording",
         "record.draw": "record_annotations",
+        "app.edit_video": "video_edit",
     }
 
     def allowed(self, action: str) -> bool:
@@ -1083,6 +1085,39 @@ class AppController(QObject):
             dialog.show_page(page)
         return dialog
 
+    def open_video_editor(self, path: Path | None = None) -> QWidget | None:
+        """Edit a recording: trim it and add timed annotations (a new file is saved)."""
+        if not self.app.policy.allows("video_edit"):
+            self.notify.emit(self.t("app.name"), self.t("policy.feature_disabled"), True)
+            return None
+        if path is None:
+            folder = self.app.recording.output_dir() if self.app.recording else self.app.output_dir
+            chosen, _ = QFileDialog.getOpenFileName(
+                None, self.t("video.pick"), str(folder), self.t("video.pick.filter") + " (*.mp4 *.mkv *.mov *.avi *.webm *.gif)"
+            )
+            if not chosen:
+                return None
+            path = Path(chosen)
+        try:
+            project = self.app.video.open(Path(path))
+        except ScreenPilotError as exc:
+            self.notify_action.emit(
+                self.t("notify.failed.title"), self.t(exc.message_key), True,
+                (lambda: self.show_settings("recording")) if exc.message_key == "recording.error.no_ffmpeg" else None,
+            )
+            return None
+        from screenpilot.ui.video_editor import VideoEditorWindow
+
+        window = VideoEditorWindow(self.app, project, reveal=self.app.shell.reveal)
+        window.exported.connect(lambda out: self.notify.emit(self.t("video.title", name=Path(out).name), self.t("video.exported", path=out), False))
+        key = f"video:{Path(path).resolve()}"
+        self._windows[key] = window
+        window.destroyed.connect(lambda *_: self._windows.pop(key, None))
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return window
+
     def show_history(self) -> QWidget:
         from screenpilot.ui.history_window import HistoryWindow
 
@@ -1135,7 +1170,7 @@ class AppController(QObject):
         self._esc_timer.stop()
         self.recording.shutdown()
         for window in list(self._windows.values()) + list(self.pins):
-            window.close()
+            getattr(window, "force_close", window.close)()  # quitting: no "discard edits?" questions
         if self.edge_bar is not None:
             self.edge_bar.close()
             self.edge_bar = None

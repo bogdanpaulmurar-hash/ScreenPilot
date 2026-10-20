@@ -9,6 +9,8 @@ smoke test of the headless core on any Windows machine::
     python -m screenpilot --lang ro hotkeys
     python -m screenpilot record --rect 0,0,1280,720 --seconds 10 --out C:/Temp/demo.mp4
     python -m screenpilot record-info
+    python -m screenpilot video-info C:/Temp/demo.mp4
+    python -m screenpilot video-edit C:/Temp/demo.mp4 --trim 1.5,12 --step 2,5,400,300 --text 2,5,430,280,"Click here"
 """
 
 from __future__ import annotations
@@ -61,7 +63,68 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--out", type=Path, help="output file (default: the recordings folder)")
     rec.add_argument("--no-effects", action="store_true", help="no cursor highlight / click ripples")
     sub.add_parser("record-info", help="show ffmpeg, encoder and audio device detection")
+
+    vinfo = sub.add_parser("video-info", help="size, length and audio of a video or GIF")
+    vinfo.add_argument("file", type=Path)
+    vedit = sub.add_parser("video-edit", help="trim a video and add timed annotations (new file, the source is kept)")
+    vedit.add_argument("source", type=Path, help="video / GIF, or a .json project saved by the editor")
+    vedit.add_argument("--trim", help="start,end in seconds (end may be empty: '2,')")
+    vedit.add_argument("--step", action="append", default=[], help="start,end,x,y — numbered step")
+    vedit.add_argument("--arrow", action="append", default=[], help="start,end,x1,y1,x2,y2")
+    vedit.add_argument("--rect", action="append", default=[], help="start,end,x1,y1,x2,y2")
+    vedit.add_argument("--highlight", action="append", default=[], help="start,end,x1,y1,x2,y2")
+    vedit.add_argument("--blur", action="append", default=[], help="start,end,x1,y1,x2,y2")
+    vedit.add_argument("--text", action="append", default=[], help="start,end,x,y,text")
+    vedit.add_argument("--color", help="annotation colour, e.g. #d13438")
+    vedit.add_argument("--save-project", type=Path, help="also write the project as JSON")
+    vedit.add_argument("--out", type=Path, help="output file (default: <name>_edited next to the source)")
     return parser
+
+
+def _numbers(text: str, count: int) -> list[float]:
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) < count:
+        raise ScreenPilotError(f"Expected {count} comma-separated values, got {text!r}")
+    return [float(p) for p in parts[:count]]
+
+
+def _video_edit(app, args) -> int:
+    from screenpilot.capture import Point
+
+    t = app.translator.t
+    video = app.video
+    source = Path(args.source)
+    project = video.open_project_file(source) if source.suffix.lower() == ".json" else video.open(source)
+    if args.trim:
+        start, _, end = args.trim.partition(",")
+        project.set_trim(float(start or 0), float(end) if end.strip() else project.duration)
+    extra = {"color": args.color} if args.color else {}
+    for spec in args.step:
+        a, b, x, y = _numbers(spec, 4)
+        project.add(project.make_shape("step", Point(int(x), int(y)), **extra), a, b)
+    for kind in ("arrow", "rect", "highlight", "blur"):
+        for spec in getattr(args, kind):
+            a, b, x1, y1, x2, y2 = _numbers(spec, 6)
+            project.add(project.make_shape(kind, Point(int(x1), int(y1)), Point(int(x2), int(y2)), **extra), a, b)
+    for spec in args.text:
+        parts = spec.split(",", 4)
+        if len(parts) < 5:
+            raise ScreenPilotError(f"--text needs start,end,x,y,text, got {spec!r}")
+        a, b, x, y = (float(p) for p in parts[:4])
+        project.add(project.make_shape("text", Point(int(x), int(y)), text=parts[4], **extra), a, b)
+    if args.save_project:
+        project.save(args.save_project)
+    last = [-1]
+
+    def progress(value: float) -> None:
+        percent = int(value * 100) // 10 * 10
+        if percent != last[0]:
+            last[0] = percent
+            print(t("cli.video.progress", percent=percent), flush=True)
+
+    path = video.export(project, args.out, progress=progress)
+    print(t("cli.video.saved", path=path, duration=f"{project.output_duration:.1f}", count=len(project.annotations)))
+    return 0
 
 
 def _record(app, args) -> int:
@@ -225,6 +288,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _record(app, args)
         elif args.command == "record-info":
             _record_info(app)
+        elif args.command == "video-info":
+            info = app.video.open(args.file).info
+            print(
+                t(
+                    "cli.video.info",
+                    width=info.width, height=info.height, duration=f"{info.duration:.1f}", fps=f"{info.fps:g}",
+                    audio=t("cli.yes") if info.has_audio else t("cli.no"),
+                )
+            )
+        elif args.command == "video-edit":
+            return _video_edit(app, args)
         elif args.command == "capture":
             result = _do_capture(app, args)
             if result is None:

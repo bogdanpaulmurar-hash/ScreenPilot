@@ -193,10 +193,18 @@ class IconButton(QToolButton):
     def __init__(self, icon_name: str, *, size: int = 18, token: str = "text") -> None:
         super().__init__()
         self.icon_name = icon_name
+        self._token, self._size = token, size
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setIconSize(QSize(size, size))
         self.setAutoRaise(True)
-        on_theme_changed(self, lambda t: self.setIcon(icons.icon(icon_name, getattr(t, token), size, t.text_muted)))
+        on_theme_changed(self, self._apply_icon)
+
+    def _apply_icon(self, t) -> None:
+        self.setIcon(icons.icon(self.icon_name, getattr(t, self._token), self._size, t.text_muted))
+
+    def set_icon(self, icon_name: str) -> None:
+        self.icon_name = icon_name
+        self._apply_icon(theme())
 
 
 class ModeTile(QAbstractButton):

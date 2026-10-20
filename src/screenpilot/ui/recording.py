@@ -296,8 +296,9 @@ class RecordingResultCard(QWidget):
     """Bottom-right card shown when a recording is saved."""
 
     gif_requested = Signal(object)  # Path
+    edit_requested = Signal(object)  # Path
 
-    def __init__(self, result: "RecordingResult", translator: Translator, *, can_convert: bool, reveal: Callable[[Path], None], copy_text: Callable[[str], None]) -> None:
+    def __init__(self, result: "RecordingResult", translator: Translator, *, can_convert: bool, reveal: Callable[[Path], None], copy_text: Callable[[str], None], can_edit: bool = False) -> None:
         super().__init__(None)
         self.result = result
         self.t = translator.t
@@ -357,6 +358,7 @@ class RecordingResultCard(QWidget):
             ("open", "play", "recording.open", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.path)))),
             ("folder", "folder", "preview.folder", lambda: reveal(result.path)),
             ("copy_path", "copy", "recording.copy_path", lambda: copy_text(str(result.path))),
+            *((("edit", "edit", "recording.edit", lambda: (self.edit_requested.emit(result.path), self.close())),) if can_edit else ()),
         ):
             button = IconButton(icon_name, size=18)
             rt.bind(button.setToolTip, tip)
@@ -691,8 +693,10 @@ class RecordingController(QObject):
             can_convert=self.app.recording.ffmpeg() is not None,
             reveal=self._reveal,
             copy_text=self.ctrl.copy_text,
+            can_edit=self.app.policy.allows("video_edit") and (result.format == "gif" or self.app.recording.ffmpeg() is not None),
         )
         card.gif_requested.connect(self.convert_to_gif)
+        card.edit_requested.connect(self.ctrl.open_video_editor)
         card.destroyed.connect(lambda *_: setattr(self, "result_card", None) if self.result_card is card else None)
         self.result_card = card
         card.show_near_corner()

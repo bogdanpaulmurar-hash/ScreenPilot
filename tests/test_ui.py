@@ -989,6 +989,63 @@ class RecordingUiTests(UiTestCase):
         self.rec.cancel()
         self.assertTrue(wait_until(lambda: not self.rec.active, timeout=10))
 
+    def test_video_editor_trims_annotates_and_saves_a_gif(self):
+        from test_videoedit import make_gif
+
+        src = make_gif(Path(self._tmp.name) / "clip.gif", frames=30, w=320, h=200)
+        window = self.controller.open_video_editor(src)
+        self.assertIsNotNone(window)
+        QTest.qWaitForWindowExposed(window)
+        self.assertTrue(wait_until(lambda: window.canvas._frame is not None))
+        window.seek(1.0)
+        window.set_tool("step")
+        canvas = window.canvas
+        center = canvas.target().center().toPoint()
+        QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=center)
+        self.assertEqual(len(window.project.annotations), 1)
+        ann = window.project.annotations[0]
+        self.assertAlmostEqual(ann.start, 1.0, delta=0.01)
+        self.assertAlmostEqual(ann.end - ann.start, window.canvas.duration_s, delta=0.01)
+        window.set_tool("blur")
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=center - QPoint(60, 40))
+        QTest.mouseMove(canvas, center - QPoint(10, 10))
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=center - QPoint(10, 10))
+        self.assertEqual([a.kind for a in window.project.annotations], ["step", "blur"])
+        # Drag the start handle to about a quarter of the video.
+        tl = window.timeline
+        QTest.mousePress(tl, Qt.MouseButton.LeftButton, pos=QPoint(round(tl._x(0)), 20))
+        QTest.mouseMove(tl, QPoint(round(tl._x(0.75)), 20))
+        QTest.mouseRelease(tl, Qt.MouseButton.LeftButton, pos=QPoint(round(tl._x(0.75)), 20))
+        self.assertAlmostEqual(window.project.start, 0.75, delta=0.1)
+        window.undo()
+        self.assertEqual(window.project.start, 0.0)
+        window.redo()
+        window.seek(2.5)
+        window.trim_end_here()
+        self.assertAlmostEqual(window.project.output_duration, 1.75, delta=0.1)
+        QTest.qWait(200)
+        shot(window, "47_video_editor")
+        window.export()
+        self.assertTrue(wait_until(lambda: window._exported_path is not None, timeout=20), window.status.text())
+        out = window._exported_path
+        self.assertTrue(out.exists() and out.name == "clip_edited.gif")
+        self.assertTrue(window.buttons["folder"].isVisible())
+        window.show_folder()
+        self.assertTrue(src.exists())
+        window.close()  # exported: closes without asking
+
+    def test_video_editor_from_the_recording_result_card(self):
+        self.assertTrue(self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "gif"))
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+        QTest.qWait(400)
+        self.rec.stop()
+        card = self.wait_result()
+        self.assertIn("edit", card.buttons)
+        QTest.mouseClick(card.buttons["edit"], Qt.MouseButton.LeftButton)
+        editors = [w for k, w in self.controller._windows.items() if k.startswith("video:")]
+        self.assertEqual(len(editors), 1)
+        editors[0].force_close()
+
     def test_policy_blocks_recording_everywhere(self):
         from screenpilot.core.policy import Policy
 

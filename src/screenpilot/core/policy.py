@@ -39,6 +39,7 @@ FEATURES = (
     "recording",
     "record_audio",
     "record_annotations",
+    "video_edit",
     "ocr",
     "pin",
     "watermark_off",

@@ -206,6 +206,10 @@ class PillowGifSink:
         # Paused time is already excluded from timestamps by the recorder.
         self._paused_at = None
 
+    def extend_to(self, ts: float) -> None:
+        """Make the last frame last until ``ts`` (used when re-writing an edited GIF)."""
+        self._end = max(self._end, ts)
+
     def durations(self) -> list[int]:
         """Frame durations in milliseconds (for diagnostics and tests)."""
         if not self._starts:

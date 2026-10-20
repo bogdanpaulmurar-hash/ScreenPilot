@@ -106,6 +106,9 @@ DEFAULTS: dict[str, Any] = {
         "width": 4,
         "open_mode": "ask",  # opening the editor without a capture: "ask" = picker, "last" = newest capture
     },
+    "video": {
+        "annotation_seconds": 3.0,  # how long a new annotation stays in the video editor
+    },
     "history": {
         "limit": 100,
     },

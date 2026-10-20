@@ -46,7 +46,8 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "record.gif": "Ctrl+Shift+8",
     "record.pause": None,
     "record.zoom": None,
-    "record.draw": None,  # pen on/off while recording (assign in Settings › Hotkeys)
+    "record.draw": None,
+    "app.edit_video": None,  # pen on/off while recording (assign in Settings › Hotkeys)
 }
 
 # Combinations Windows reserves or commonly uses; value is an i18n reason key.

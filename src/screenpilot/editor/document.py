@@ -285,6 +285,11 @@ def _draw_shape(img: Image.Image, overlay: ImageDraw.ImageDraw, s: Shape, number
         overlay.text((c.x, c.y), label, fill=(255, 255, 255, 255), font=font(round(d * (0.55 if len(label) < 2 else 0.45)), True), anchor="mm")
 
 
+def hit_shape(s: Shape, p: Point, slack: int = 6) -> bool:
+    """Is ``p`` on shape ``s``? (public for other engines' editors)."""
+    return _hit_shape(s, p, slack)
+
+
 def draw_shape(img: Image.Image, overlay: ImageDraw.ImageDraw, s: Shape, number: int | None) -> None:
     """Public entry for other engines (recording annotations) that draw editor shapes."""
     _draw_shape(img, overlay, s, number)

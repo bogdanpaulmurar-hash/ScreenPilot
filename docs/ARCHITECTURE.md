@@ -52,6 +52,7 @@ Status: M1 (desktop shell) — October 2026.
 | `ocr` | `OcrEngine` protocol; Windows.Media.Ocr, Tesseract; sensitive data | done (v1) |
 | `docs` | procedure sessions; DOCX/HTML/MD export (PDF via Qt) | done (v1) |
 | `recording` | frame source → effects (ink, cursor, clicks, zoom) → sink (ffmpeg MP4 / Pillow GIF), `RecordingService`; `ink` = live annotations (`InkLayer`, `InkRenderer`) | done (v1 + live annotations) |
+| `videoedit` | video projects (trim + timed annotations, JSON), frame readers (FFmpeg seek / Pillow GIF), export (one FFmpeg pass / Pillow GIF), `VideoEditService` = `app.video` | done (v1) |
 | `ai` | extension points: detectors, annotators, summarizers | M6 |
 
 ## Key decisions
@@ -74,6 +75,7 @@ Status: M1 (desktop shell) — October 2026.
 | ADR-14 | Esc outside our windows = polling one key (`GetAsyncKeyState`) only while a flow runs | Same no-hook rule as hotkeys; works when another app keeps the keyboard focus |
 | ADR-15 | "FFmpeg not found" is never cached; discovery also checks winget/Chocolatey/Scoop folders and the registry `Path` | An FFmpeg installed while the app runs (stale process `PATH`) is used at the next recording without a restart |
 | ADR-16 | Captures are drawn at most 1 image px per *physical* screen px (`capture.geometry.fit_view`, `ui.qt_helpers.fit_target` / `sharp_thumbnail`) | Capping at 1 *logical* px upscaled every capture by 125–150 % on scaled screens, which made text look soft in the editor, Number steps, OCR and previews |
+| ADR-19 | Video editing exports in one FFmpeg pass: input seeking + re-encode for a frame-exact cut, each annotation a small PNG input with `overlay … enable='between(t,a,b)'` (BT.709 conversion), blur = `crop`+`boxblur` overlay; GIFs are edited with Pillow | No second tool and no frame-by-frame Python loop for MP4 (about real time or faster with a hardware encoder); a stream-copy cut would snap to keyframes (every ~2 s in our recordings); GIF editing works without FFmpeg; the source file is never modified (`<name>_edited`, `.part` + rename) |
 | ADR-18 | Live annotations are burned in by the recorder (`recording.ink`); the Qt overlay is only an input/preview surface excluded from capture | Headless: Autopilot can add steps with `recorder.ink.add_step(...)`; same Pillow renderer as the editor; per-item cached BGRA patches keep the per-frame cost tied to the annotation size (≈0.3 ms per step at 1080p), zero without ink. Without `WDA_EXCLUDEFROMCAPTURE` the overlay itself is recorded and `burn_in` is switched off |
 | ADR-17 | MP4: explicit RGB→YUV conversion with BT.709, accurate rounding and colour tags (`SCREEN_COLOR_FILTER`, `COLOR_TAGS`) in one `-filter_complex` with the audio mix | ffmpeg's implicit conversion uses BT.601 untagged, so players shift colours and coloured text bleeds more |
 
@@ -90,6 +92,7 @@ Status: M1 (desktop shell) — October 2026.
 | `recording.state` | `state`, `elapsed` |
 | `recording.finished` | `result: RecordingResult` |
 | `recording.failed` | `error` |
+| `video.exported` | `path`, `source`, `duration` |
 | `recording.saved` | `path`, `format`, `duration` |
 
 ## Autopilot integration

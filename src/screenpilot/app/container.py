@@ -12,6 +12,8 @@ the CLI and external automation (e.g. Autopilot)::
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +39,10 @@ from screenpilot.workflow import ActionRegistry, StepResult, Workflow, WorkflowC
 log = logging.getLogger(__name__)
 
 
+if TYPE_CHECKING:  # pragma: no cover
+    from screenpilot.videoedit import VideoEditService
+
+
 @dataclass
 class ScreenPilotApp:
     paths: AppPaths
@@ -53,6 +59,7 @@ class ScreenPilotApp:
     policy: Policy = field(default_factory=Policy)
     services: ServiceRegistry = field(default_factory=ServiceRegistry)
     recording: RecordingService | None = None
+    video: "VideoEditService | None" = None
 
     @property
     def output_dir(self) -> Path:
@@ -192,6 +199,9 @@ def create_app(
         app_dir=application_dir(),
         extra_dirs=(paths.data_dir,),
     )
+    from screenpilot.videoedit import VideoEditService
+
+    app.video = VideoEditService(app.recording, bus=bus, policy=policy, settings=settings)
     backend_obj = app.capture.backend
     if hasattr(backend_obj, "include_cursor"):
         backend_obj.include_cursor = bool(settings.get("capture.include_cursor"))
@@ -208,6 +218,7 @@ def create_app(
         (ActionRegistry, app.actions),
         (CaptureHistory, app.history),
         (RecordingService, app.recording),
+        (VideoEditService, app.video),
     ):
         app.services.register_instance(key, instance)
     return app

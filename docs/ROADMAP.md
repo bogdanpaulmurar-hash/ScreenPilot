@@ -60,10 +60,11 @@ capture reliability, hotkey ergonomics.
 | **M5.0.1 Pilot feedback** ✅ (0.5.1) | FFmpeg found without restart, full-resolution streamed GIF, PNG on the clipboard, selector fast on spreadsheets + focus fix, Esc everywhere (pause + ask for recording/scrolling), optional action bar, Region "copy only", editor picker (last / 10 recent / clipboard / file / all), Copy & close, Explorer opens the right folder | issues from the first real-use round fixed |
 | **M5.0.2 Sharpness** ✅ (0.5.2) | captures shown 1:1 in physical pixels in the editor, Number steps, OCR and thumbnails on 125 %/150 % screens; MP4 converted with BT.709 + accurate rounding, Balanced quality 23→20 | text in captures and videos looks as sharp as on screen |
 | **M5.0.3 Live annotations** ✅ (0.6.0) | pen on the recording bar: numbered steps, arrows, rectangles, highlights, text burned into MP4/GIF while recording; undo/clear, optional fade-out, colour; `record.draw` hotkey; IT feature `record_annotations`; headless `recorder.ink` API | step-by-step video tutorial without post-editing |
-| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in), **post-recording annotation editor** (start–end time per annotation, burned in by ffmpeg at export — option 2 below) | Loom-style tutorial in one take |
+| **M5.0.4 Video editor** ✅ (0.7.0) | edit a recording afterwards: trim start/end, timed steps / arrows / rectangles / highlights / text / blur on a timeline, preview, export to a new MP4 (one FFmpeg pass) or GIF (Pillow); projects as JSON; CLI `video-info`, `video-edit`; `app.video` API; IT feature `video_edit` | fix or annotate a tutorial without re-recording |
+| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in), cut out a middle part, zoom/pan keyframes, speed changes | Loom-style tutorial in one take |
 | **M6 Intelligence** | UI element detection, anchored annotations, AI extension layer, Autopilot integration | anchor callouts to detected buttons |
 
-### Video annotations (option 1 done in 0.6.0, option 2 planned)
+### Video annotations (option 1 done in 0.6.0, option 2 done in 0.7.0)
 
 Two complementary options, both outside the capture loop so recording speed is unchanged:
 
