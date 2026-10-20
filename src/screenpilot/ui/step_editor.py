@@ -236,16 +236,21 @@ class StepEditor(QWidget):
         rt.bind(hint.setText, "steps.hint")
         bottom.addWidget(hint, 1)
         bottom.addWidget(self.count_label)
-        for key, slot, accent in (
-            ("steps.copy", self.copy, False),
-            ("steps.save_as", self.save_as, False),
-            ("steps.done", self.done, True),
+        self.buttons: dict[str, QPushButton] = {}
+        for key, slot, accent, tip in (
+            ("steps.copy", self.copy, False, "editor.copy.tip"),
+            ("editor.copy_close", self.copy_and_close, False, "editor.copy_close.tip"),
+            ("steps.save_as", self.save_as, False, None),
+            ("steps.done", self.done, True, "editor.done.tip"),
         ):
             button = QPushButton()
             button.setProperty("accent", accent)
             rt.bind(button.setText, key)
+            if tip:
+                rt.bind(button.setToolTip, tip)
             button.clicked.connect(slot)
             bottom.addWidget(button)
+            self.buttons[key.split(".", 1)[1]] = button
             if accent:
                 self.done_button = button
 
@@ -256,6 +261,7 @@ class StepEditor(QWidget):
         layout.addLayout(bottom)
 
         QShortcut(QKeySequence.StandardKey.Undo, self, activated=self.undo)
+        QShortcut(QKeySequence("Ctrl+Shift+Return"), self, activated=self.copy_and_close)
         self.canvas.changed.connect(self._update_count)
         self._update_count()
 
@@ -298,6 +304,11 @@ class StepEditor(QWidget):
             return None
         target = Path(path)
         return self.rendered().save(target, image_format=target.suffix.lstrip(".") or "png")
+
+    def copy_and_close(self) -> None:
+        """Copy the numbered image to the clipboard and close (nothing is saved)."""
+        self._copy(self.rendered())
+        self.close()
 
     def done(self) -> None:
         image = self.rendered()

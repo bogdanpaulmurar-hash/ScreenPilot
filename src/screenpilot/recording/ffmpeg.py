@@ -7,8 +7,12 @@ process means no FFmpeg code is linked into ScreenPilot, so the licence of
 whichever FFmpeg build IT approves (LGPL or GPL) does not affect the app.
 
 FFmpeg is located, in order: the ``recording.ffmpeg_path`` setting, an
-``ffmpeg.exe`` next to the application (or in ``ffmpeg\\bin``), then ``PATH``.
-Without it, recordings fall back to the built-in GIF encoder.
+``ffmpeg.exe`` next to the application (or in ``ffmpeg\\bin``), ``PATH``, and
+finally the places package managers put it (winget, Chocolatey, Scoop, the
+``Path`` stored in the registry). The last step matters because a process
+started at logon keeps the ``PATH`` it was given: FFmpeg installed later with
+``winget install Gyan.FFmpeg`` would otherwise stay invisible until sign-out.
+Without FFmpeg, recordings fall back to the built-in GIF encoder.
 
 Hardware encoders (NVENC, Quick Sync, AMF, Media Foundation) are preferred in
 ``auto`` mode, but each one is verified with a tiny test encode first because
@@ -60,24 +64,95 @@ def _run(args: Sequence[str], timeout: float = PROBE_TIMEOUT) -> "subprocess.Com
 
 
 # -- discovery ------------------------------------------------------------------
-def candidate_paths(configured: str, app_dir: Path | None, extra_dirs: Sequence[Path] = ()) -> list[Path]:
+def _registry_path_dirs() -> list[Path]:
+    """Folders in the *current* user and machine ``Path`` (the registry, not our environment)."""
+    if sys.platform != "win32":
+        return []
+    import winreg
+
+    dirs: list[Path] = []
+    for root, sub in (
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ):
+        try:
+            with winreg.OpenKey(root, sub) as key:
+                value, _kind = winreg.QueryValueEx(key, "Path")
+        except OSError:
+            continue
+        for part in str(value).split(";"):
+            part = os.path.expandvars(part.strip().strip('"'))
+            if part:
+                dirs.append(Path(part))
+    return dirs
+
+
+def _glob_bins(folder: Path, pattern: str) -> list[Path]:
+    try:
+        return sorted((p for p in folder.glob(pattern) if p.is_dir()), reverse=True)  # newest version first
+    except OSError:
+        return []
+
+
+def well_known_dirs() -> list[Path]:
+    """Where package managers install FFmpeg on Windows (checked after ``PATH``)."""
+    if sys.platform != "win32":
+        return []
+    env = os.environ
+    local = Path(env.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    program_data = Path(env.get("ProgramData", r"C:\ProgramData"))
+    dirs = [
+        local / "Microsoft" / "WinGet" / "Links",
+        *_glob_bins(local / "Microsoft" / "WinGet" / "Packages", "*FFmpeg*/*/bin"),
+        program_data / "chocolatey" / "bin",
+        Path.home() / "scoop" / "shims",
+        Path.home() / "scoop" / "apps" / "ffmpeg" / "current" / "bin",
+    ]
+    for base in (env.get("ProgramFiles", r"C:\Program Files"), env.get("ProgramFiles(x86)", ""), "C:\\"):
+        if base:
+            dirs.append(Path(base) / "ffmpeg" / "bin")  # Windows paths are case-insensitive
+    return _registry_path_dirs() + dirs
+
+
+def candidate_paths(
+    configured: str,
+    app_dir: Path | None,
+    extra_dirs: Sequence[Path] = (),
+    *,
+    search_dirs: Callable[[], list[Path]] | None = None,
+) -> list[Path]:
     exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     paths: list[Path] = []
     if configured:
-        p = Path(os.path.expandvars(configured)).expanduser()
+        p = Path(os.path.expandvars(configured.strip().strip('"'))).expanduser()
         paths.append(p / exe if p.is_dir() else p)
     for folder in ([app_dir] if app_dir is not None else []) + list(extra_dirs):
         paths += [folder / exe, folder / "ffmpeg" / "bin" / exe, folder / "ffmpeg" / exe]
     found = shutil.which("ffmpeg")
     if found:
         paths.append(Path(found))
-    return paths
+    for folder in (search_dirs or well_known_dirs)():
+        paths.append(folder / exe)
+    unique: list[Path] = []
+    for path in paths:
+        if path not in unique:
+            unique.append(path)
+    return unique
 
 
-def find_ffmpeg(configured: str = "", app_dir: Path | None = None, extra_dirs: Sequence[Path] = ()) -> Path | None:
-    for path in candidate_paths(configured, app_dir, extra_dirs):
-        if path.is_file():
-            return path
+def find_ffmpeg(
+    configured: str = "",
+    app_dir: Path | None = None,
+    extra_dirs: Sequence[Path] = (),
+    *,
+    search_dirs: Callable[[], list[Path]] | None = None,
+) -> Path | None:
+    for path in candidate_paths(configured, app_dir, extra_dirs, search_dirs=search_dirs):
+        try:
+            if path.is_file():
+                return path
+        except OSError:  # unreachable network drive in PATH, invalid characters
+            continue
     return None
 
 

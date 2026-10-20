@@ -23,7 +23,7 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
-from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -108,6 +108,7 @@ class SelectorStyle:
     mode_label: str = ""  # shown next to the hint for non-default modes
     pick_color: bool = False  # colour picker: a click picks the pixel, no selection
     measure: bool = False  # ruler: size pill shows the diagonal, no action bar
+    action_bar: bool = True  # False: the selection is captured as soon as the mouse is released
 
 
 def match_screens(monitors: Sequence[Monitor], screens: Sequence[QScreen]) -> list[tuple[Monitor, QScreen]]:
@@ -292,7 +293,7 @@ class MonitorOverlay(QWidget):
 
     def _place_action_bar(self) -> None:
         snap = self.model.snapshot()
-        if snap.state is not State.ADJUSTING or snap.selection is None or self.style.measure:
+        if snap.state is not State.ADJUSTING or snap.selection is None or self.style.measure or not self.style.action_bar:
             self.action_bar.hide()
             return
         sel = self.to_logical(snap.selection)
@@ -338,8 +339,11 @@ class MonitorOverlay(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            new_selection = self.model.state is State.DRAGGING
             self.model.release(self.to_physical(event.position()))
             self._changed()
+            if new_selection and not self.style.action_bar and self.model.state is State.ADJUSTING:
+                self._confirm(ACTION_DEFAULT)  # no action bar: the mode's Enter action, right away
 
     def focusNextPrevChild(self, next: bool) -> bool:  # noqa: N802, A002 - Tab cycles frames instead
         return False
@@ -602,11 +606,27 @@ class RegionSelector(QObject):
             if screen.geometry().contains(cursor):
                 overlay.set_hovering(True)
                 overlay.model.move(overlay.to_physical(QPointF(overlay.mapFromGlobal(cursor))))
-                overlay.activateWindow()
-                overlay.setFocus()
+                self._focus(overlay)
+                QTimer.singleShot(0, lambda o=overlay: self._focus(o) if any(o is x for x in self.overlays) else None)
         if not self.overlays:
             log.error("No screen could be matched to a monitor")
             self.finished.emit(None)
+
+    @staticmethod
+    def _focus(overlay: "MonitorOverlay") -> None:
+        """Take keyboard focus from the app in front (Excel, a browser...), so
+        arrows, Enter and Esc reach the selector even when Windows refused the
+        plain activation request."""
+        from screenpilot.platform.win32_window import force_foreground
+
+        overlay.raise_()
+        overlay.activateWindow()
+        force_foreground(int(overlay.winId()))
+        overlay.setFocus()
+
+    def cancel(self) -> None:
+        if self.overlays:
+            self._finish(None)
 
     def _on_pressed(self, source: MonitorOverlay) -> None:
         for overlay in self.overlays:

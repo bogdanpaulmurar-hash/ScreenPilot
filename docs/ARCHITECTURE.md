@@ -44,7 +44,7 @@ Status: M1 (desktop shell) — October 2026.
 | `capture` | geometry, image model, backends, `CaptureService` | done (static) |
 | `hotkeys` | parsing, bindings, conflicts, diagnostics, profiles | done |
 | `workflow` | chained post-capture actions | done (core actions) |
-| `platform` | clipboard, shell reveal | done (Windows) |
+| `platform` | clipboard (DIB + PNG), Explorer reveal, focus, Esc key latch | done (Windows) |
 | `ui` | Qt tray, region selector, countdown, settings, hotkeys, history, wizard | done |
 | `history` | recent captures + thumbnails | done |
 | `samples` | synthetic demo desktop for demos, tutorials, tests | done |
@@ -69,6 +69,10 @@ Status: M1 (desktop shell) — October 2026.
 | ADR-9 | Flat JSON locale files | Diff-friendly, translators need no tooling, new language = new file |
 | ADR-10 | Recording: ScreenPilot grabs frames, ffmpeg only encodes (stdin pipe) | Effects identical for MP4 and GIF; ffmpeg stays an optional, replaceable external process (no linking, IT chooses the build) |
 | ADR-11 | Constant frame rate by repeating frames; pause = new segment | Audio/video stay in sync with wall-clock time; segments join without re-encoding |
+| ADR-12 | GIF streamed to disk as changed-area patches (Pillow encodes each patch; ScreenPilot writes the GIF container) | Full resolution with no memory cap; screen content (≤256 colours per patch) is lossless; cancelled recordings leave only a `.part` file that is removed |
+| ADR-13 | Frame detection has a time budget (25 ms) and visits side combinations nearest-first | Grids (Excel, Sheets) made the exhaustive search take seconds per mouse move and froze the selector |
+| ADR-14 | Esc outside our windows = polling one key (`GetAsyncKeyState`) only while a flow runs | Same no-hook rule as hotkeys; works when another app keeps the keyboard focus |
+| ADR-15 | "FFmpeg not found" is never cached; discovery also checks winget/Chocolatey/Scoop folders and the registry `Path` | An FFmpeg installed while the app runs (stale process `PATH`) is used at the next recording without a restart |
 
 ## Events (public)
 
@@ -77,7 +81,7 @@ Status: M1 (desktop shell) — October 2026.
 | `capture.completed` | `result: CaptureResult` |
 | `capture.failed` | `mode`, `error` |
 | `capture.countdown` | `seconds` |
-| `capture.cancelled` | — |
+| `capture.cancelled` | `mode` (optional; `scrolling` when the user discards a scrolling capture) |
 | `editor.open_requested` | `result`, `path` |
 | `workflow.finished` | `results`, `path` |
 | `recording.state` | `state`, `elapsed` |
@@ -110,6 +114,17 @@ Captures are synchronous and fast (tens of ms); the UI runs them on a worker
 thread. Event handlers run on the publisher's thread — UI subscribers marshal
 to the GUI thread themselves. The hotkey listener owns its own Win32 message
 thread.
+
+The scrolling capture worker can block on a question (Esc → continue / stop /
+discard): it emits a Qt signal with a `threading.Event`, the GUI thread shows
+the dialog and sets the answer.
+
+UI flows (selector, countdowns, recording, interval capture) poll Esc every
+60 ms with a `KeyLatch` (one event per press) while one of them is active; the
+timer stops by itself afterwards. The selector overlay takes focus with
+`AttachThreadInput` + `SetForegroundWindow`, because Windows may refuse a
+plain activation for a window shown from a hotkey while Excel or a browser is
+in front. Window ghosting is disabled for the process.
 
 ## Testing
 

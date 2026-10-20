@@ -130,3 +130,61 @@ class ServiceScrollingTests(unittest.TestCase):
         self.assertEqual(result.image.height, HEADER + PAGE_H)
         self.assertIn("capture.scroll_progress", seen)
         self.assertEqual(seen[-1], "capture.completed")
+
+    def test_cancelled_scrolling_returns_no_result(self):
+        from screenpilot.capture import CaptureService, FakeBackend, Monitor
+        from screenpilot.core.events import EventBus
+
+        win = FakeScrollingWindow()
+        win.stop_after = 1
+        backend = FakeBackend([Monitor(1, Rect(0, 0, 1920, 1080), Rect(0, 0, 1920, 1040), True)])
+        backend.grab = win.grab
+        bus = EventBus()
+        seen = []
+        bus.subscribe("*", lambda e: seen.append(e.name))
+        service = CaptureService(backend, bus)
+        result, reason = service.capture_scrolling(Rect(0, 0, W, VIEW_H), win, settle=lambda: None, on_stop=lambda: "cancel")
+        self.assertIsNone(result)
+        self.assertEqual(reason, "cancelled")
+        self.assertEqual(seen[-1], "capture.cancelled")
+        self.assertNotIn("capture.completed", seen)
+
+
+class EscDuringScrollingTests(unittest.TestCase):
+    def _run(self, answers):
+        win = FakeScrollingWindow()
+        win.stop_after = 2
+        asked = []
+
+        def on_stop():
+            asked.append(win.scrolls)
+            answer = answers.pop(0)
+            if answer == "continue":
+                win.stop_after = None  # Esc released
+            return answer
+
+        image, reason = capture_scrolling(
+            win.grab, Rect(0, 0, W, VIEW_H), win, settle=lambda: None, on_stop=on_stop, sleep=lambda s: None
+        )
+        return image, reason, asked, win
+
+    def test_continue_resumes_until_the_end(self):
+        image, reason, asked, win = self._run(["continue"])
+        self.assertEqual(reason, "end")
+        self.assertEqual(asked, [2])
+        self.assertEqual(image.height, HEADER + PAGE_H)
+
+    def test_stop_keeps_what_was_captured(self):
+        image, reason, asked, _ = self._run(["stop"])
+        self.assertEqual(reason, "stopped")
+        self.assertGreater(image.height, VIEW_H)
+
+    def test_cancel_reports_cancelled(self):
+        _, reason, _, _ = self._run(["cancel"])
+        self.assertEqual(reason, "cancelled")
+
+    def test_without_callback_esc_stops_as_before(self):
+        win = FakeScrollingWindow()
+        win.stop_after = 1
+        _, reason = capture_scrolling(win.grab, Rect(0, 0, W, VIEW_H), win, settle=lambda: None)
+        self.assertEqual(reason, "stopped")

@@ -25,7 +25,7 @@ from screenpilot.core.errors import ConfigurationError
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULTS: dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
@@ -48,6 +48,7 @@ DEFAULTS: dict[str, Any] = {
         "jpeg_quality": 90,
         "filename_template": "ScreenPilot_{date}_{time}_{mode}",
         "output_dir": "",
+        "region_action": "workflow",  # Region (Ctrl+Shift+1): "workflow" = after-capture actions, "copy" = clipboard only
     },
     "watermark": {
         "enabled": False,
@@ -59,8 +60,8 @@ DEFAULTS: dict[str, Any] = {
     "recording": {
         "format": "mp4",
         "fps": 30,
-        "gif_fps": 12,
-        "gif_max_width": 960,
+        "gif_fps": 15,
+        "gif_max_width": 1920,
         "quality": 23,
         "encoder": "auto",
         "microphone": "",
@@ -75,6 +76,8 @@ DEFAULTS: dict[str, Any] = {
         "ffmpeg_path": "",
         "output_dir": "",
         "open_folder_after": False,
+        "gif_fallback_notice": True,  # tell the user once per recording that MP4 needs FFmpeg
+        "esc_pauses": True,  # Esc pauses the recording and asks to continue / stop / discard
     },
     "workflow": {
         "after_capture": [
@@ -88,6 +91,7 @@ DEFAULTS: dict[str, Any] = {
         "thickness": 2,
         "dim": 47,
         "magnifier": True,
+        "action_bar": True,  # False = capture as soon as the mouse is released
     },
     "ocr": {
         "language": "auto",
@@ -98,6 +102,7 @@ DEFAULTS: dict[str, Any] = {
     "editor": {
         "color": "#d13438",
         "width": 4,
+        "open_mode": "ask",  # opening the editor without a capture: "ask" = picker, "last" = newest capture
     },
     "history": {
         "limit": 100,
@@ -115,8 +120,20 @@ DEFAULTS: dict[str, Any] = {
 Listener = Callable[[str, Any], None]
 Migration = Callable[[dict[str, Any]], dict[str, Any]]
 
+def _v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    """0.5.1: GIF recordings are streamed to disk, so the old memory-saving
+    defaults (960 px, 12 fps) are raised — only when the user never changed them."""
+    recording = data.get("recording")
+    if isinstance(recording, dict):
+        if recording.get("gif_max_width") == 960:
+            recording["gif_max_width"] = 1920
+        if recording.get("gif_fps") == 12:
+            recording["gif_fps"] = 15
+    return data
+
+
 # from_version -> function producing data for from_version + 1
-MIGRATIONS: dict[int, Migration] = {}
+MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2}
 
 
 def _get(data: dict[str, Any], dotted: str) -> Any:

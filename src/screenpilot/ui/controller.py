@@ -5,6 +5,12 @@ Threading model:
 * the post-capture workflow (PNG encoding, clipboard, scripts) runs on a
   single background worker so the UI never freezes on large captures;
 * bus events and hotkeys reach the GUI thread through Qt signals.
+
+Esc: while a capture flow runs (selector, countdowns, recording, interval
+capture), the Esc key is polled with ``GetAsyncKeyState`` — one key, read on
+demand, no hook — so Esc works even when another app has the keyboard focus.
+Recording pauses and asks whether to continue; scrolling capture asks the same
+from its worker (the scroller reads Esc itself); everything else is cancelled.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 
 from screenpilot.app import ScreenPilotApp
@@ -53,17 +59,21 @@ log = logging.getLogger(__name__)
 
 MENU_SETTLE_MS = 250  # let the tray menu disappear before grabbing the screen
 CHROME_SETTLE_MS = 150  # let our own floating bar disappear before grabbing
+ESC_POLL_MS = 60
+ESC_DEBOUNCE_S = 0.4  # an Esc the selector already handled must not cancel the next flow
 
 
 class AppController(QObject):
     hotkey_pressed = Signal(int)
     notify = Signal(str, str, bool)  # title, body, is_error
+    notify_action = Signal(str, str, bool, object)  # title, body, is_error, callable run when the message is clicked
     hotkeys_changed = Signal()
     captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
     ocr_finished = Signal(object, object, object)  # window, OcrResult | None, error str | None
     interval_changed = Signal()
     procedure_changed = Signal()
     scroll_finished = Signal(object, str, object)  # CaptureResult | None, reason, scroller
+    scroll_ask = Signal(object)  # {"event": threading.Event, "answer": str} from the scrolling worker
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
         super().__init__()
@@ -88,6 +98,14 @@ class AppController(QObject):
         self._scroll_indicator: QWidget | None = None
         self._region_default = "default"  # what Enter does in the selector ("scroll" from the hub tile)
         self.scroll_finished.connect(self._on_scroll_finished)
+        self.scroll_ask.connect(self._on_scroll_ask)
+        self.last_result: CaptureResult | None = None  # newest capture, also when only copied
+        self._asking = False  # a "continue / stop" question is open
+        self._last_esc_handled = 0.0
+        self._esc_latch = None
+        self._esc_timer = QTimer(self)
+        self._esc_timer.setInterval(ESC_POLL_MS)
+        self._esc_timer.timeout.connect(self._poll_escape)
         self.ocr_finished.connect(self._on_ocr_finished)
         self.ocr_engine_factory = None  # tests inject a fake engine
         self.hotkey_pressed.connect(self._on_hotkey)
@@ -223,6 +241,7 @@ class AppController(QObject):
             mode_label=self.t(mode.label_key) if mode is not None and mode.id != "capture.region" else "",
             pick_color=mode_id == "tools.color",
             measure=mode_id == "tools.measure",
+            action_bar=bool(s.get("selector.action_bar")),
         )
 
     def capture_region(self, mode_id: str = "capture.region") -> None:
@@ -232,6 +251,8 @@ class AppController(QObject):
 
         mode = BY_ID.get(mode_id, BY_ID["capture.region"])
         self._region_default = mode.action
+        if mode.id == "capture.region" and self.app.settings.get("capture.region_action") == "copy":
+            self._region_default = ACTION_COPY  # Region set to "copy to clipboard only"
         self._selector_started = time.perf_counter()
         try:
             frozen = self.app.capture.freeze()
@@ -242,6 +263,7 @@ class AppController(QObject):
             return
         self.selector.start(frozen, monitors, windows, self._frame_provider(frozen), self.selector_style(mode.id))
         QTimer.singleShot(0, self._selector_shown)
+        self.watch_escape()
 
     def _selector_shown(self) -> None:
         started = getattr(self, "_selector_started", None)
@@ -286,6 +308,7 @@ class AppController(QObject):
         frozen = self.selector.frozen
         self.selector.frozen = None
         if outcome is None or frozen is None:
+            self._last_esc_handled = time.monotonic()
             return
         rect, action = outcome
         default, self._region_default = self._region_default, "default"
@@ -370,6 +393,7 @@ class AppController(QObject):
         self._interval_timer.timeout.connect(self._interval_tick)
         self._interval_timer.start()
         self._interval_tick()
+        self.watch_escape()
 
     def _interval_tick(self) -> None:
         state = getattr(self, "interval", None)
@@ -525,6 +549,7 @@ class AppController(QObject):
             save_dir=self.app.output_dir,
             settings=self.app.settings,
             ocr_engine=self.ocr_engine,
+            on_copy_close=done,  # the step keeps the edit too
         )
         key = f"editor-{id(editor)}"
         self._windows[key] = editor
@@ -562,12 +587,13 @@ class AppController(QObject):
         indicator = ScrollIndicator(self.app.translator, physical_to_logical(Point(rect.x, rect.bottom), self.app.capture.monitors()))
         self._scroll_indicator = indicator
         indicator.show_near()
+        options.setdefault("on_stop", self._ask_scroll)
 
         def run() -> None:
             try:
                 with self.app.diagnostics.timed("scroll.capture") as info:
                     result, reason = self.app.capture.capture_scrolling(rect, scroller, **options)
-                    info.update(reason=reason, height=result.image.height)
+                    info.update(reason=reason, height=result.image.height if result is not None else 0)
             except Exception as exc:  # noqa: BLE001
                 log.exception("Scrolling capture failed")
                 self.scroll_finished.emit(None, str(exc), scroller)
@@ -583,6 +609,9 @@ class AppController(QObject):
         if self._scroll_indicator is not None:
             self._scroll_indicator.close()
             self._scroll_indicator = None
+        if reason == "cancelled":
+            self.notify.emit(self.t("action.capture.scrolling"), self.t("scroll.cancelled"), False)
+            return
         if result is None:
             self.notify.emit(self.t("notify.failed.title"), reason, True)
             return
@@ -591,6 +620,109 @@ class AppController(QObject):
         elif reason == "end" and result.image.height <= result.metadata.get("view_height", 0):
             self.notify.emit(self.t("action.capture.scrolling"), self.t("scroll.not_scrollable"), False)
         self.process(result)
+
+    def _ask_scroll(self) -> str:
+        """Worker thread: Esc paused the scrolling capture; ask on the GUI thread and wait."""
+        box = {"event": threading.Event(), "answer": "stop"}
+        self.scroll_ask.emit(box)
+        if not box["event"].wait(600):
+            return "stop"
+        return box["answer"]
+
+    def _on_scroll_ask(self, box: dict) -> None:
+        if self._scroll_indicator is not None:
+            self._scroll_indicator.hide()
+        try:
+            box["answer"] = self.ask_continue("scroll.paused.title", "scroll.paused.body", stop_key="scroll.paused.stop")
+        finally:
+            if self._scroll_indicator is not None:
+                self._scroll_indicator.show()
+            box["event"].set()
+
+    def ask_continue(self, title_key: str, body_key: str, *, stop_key: str) -> str:
+        """Modal question: "continue", "stop" (keep what was captured) or "cancel" (discard)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from screenpilot.platform.win32_window import force_foreground
+
+        box = QMessageBox()
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(self.t(title_key))
+        box.setText(self.t(body_key))
+        box.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        keep = box.addButton(self.t("flow.continue"), QMessageBox.ButtonRole.AcceptRole)
+        stop = box.addButton(self.t(stop_key), QMessageBox.ButtonRole.ActionRole)
+        discard = box.addButton(self.t("flow.discard"), QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(keep)
+        box.setEscapeButton(keep)  # a second Esc just closes the question and continues
+        self._asking = True
+        try:
+            QTimer.singleShot(0, lambda: force_foreground(int(box.winId())))
+            box.exec()
+        finally:
+            self._asking = False
+            if self._esc_latch is not None:
+                self._esc_latch.reset()
+        clicked = box.clickedButton()
+        if clicked is stop:
+            return "stop"
+        if clicked is discard:
+            return "cancel"
+        return "continue"
+
+    # -- Esc ------------------------------------------------------------------
+    def watch_escape(self) -> None:
+        """Start polling Esc while a flow runs (stops by itself when nothing is active)."""
+        if sys.platform != "win32" or self._esc_timer.isActive():
+            return
+        from screenpilot.platform.keys import KeyLatch
+        from screenpilot.platform.win32_window import VK_ESCAPE, key_down
+
+        self._esc_latch = KeyLatch(lambda: key_down(VK_ESCAPE))
+        self._esc_timer.start()
+
+    def _escape_flow_active(self) -> bool:
+        return (
+            self.selector.active
+            or self._countdown is not None
+            or self.recording.active
+            or getattr(self, "interval", None) is not None
+            or self._scroll_indicator is not None
+        )
+
+    def _poll_escape(self) -> None:
+        if not self._escape_flow_active():
+            self._esc_timer.stop()
+            return
+        if self._esc_latch is not None and self._esc_latch.poll():
+            self.escape_pressed()
+
+    def escape_pressed(self) -> str:
+        """Handle Esc for the topmost running flow; returns what was done (for logs and tests)."""
+        if self._asking:
+            return "ignored"
+        if time.monotonic() - self._last_esc_handled < ESC_DEBOUNCE_S:
+            return "ignored"  # the selector already handled this press
+        self._last_esc_handled = time.monotonic()
+        if self.selector.active:
+            self.selector.cancel()
+            done = "selector"
+        elif self._countdown is not None:
+            self._countdown.cancel()
+            done = "countdown"
+        elif self._scroll_indicator is not None:
+            done = "scrolling"  # the scrolling worker reads Esc itself and asks
+        elif self.recording.active:
+            done = self.recording.escape()
+        elif getattr(self, "interval", None) is not None:
+            count = self.interval["done"]
+            self.stop_interval()
+            self.notify.emit(self.t("interval.title"), self.t("interval.finished", done=count), False)
+            done = "interval"
+        else:
+            done = "none"
+        log.info("Esc: %s", done)
+        return done
 
     def capture_window(self) -> None:
         self._guard(self.app.capture.capture_window)
@@ -611,6 +743,7 @@ class AppController(QObject):
         self._countdown.elapsed.connect(lambda: self._after_countdown(then or self.capture_region))
         self._countdown.cancelled.connect(self._countdown_cancelled)
         self._countdown.start()
+        self.watch_escape()
 
     def _after_countdown(self, then: Callable[[], None]) -> None:
         self._countdown = None
@@ -650,6 +783,8 @@ class AppController(QObject):
         size = dict(width=result.image.width, height=result.image.height)
         if self.procedure is not None and not error:
             self._add_procedure_step(result)
+        if not error:
+            self.last_result = result
         if error:
             self.notify.emit(self.t("notify.failed.title"), error, True)
             return
@@ -742,15 +877,67 @@ class AppController(QObject):
         editor.activateWindow()
         return editor
 
-    def edit_last_capture(self) -> None:
-        """Open the newest capture from the history in the editor."""
+    def last_capture(self) -> CaptureResult | None:
+        """The newest capture: the one taken in this session (even if only
+        copied), else the newest one in the history."""
+        if self.last_result is not None:
+            return self.last_result
         entries = self.app.history.entries()
-        if not entries:
-            self._not_available()
-            return
-        result = self.load_history_capture(entries[0])
-        if result is not None:
-            self.open_editor(result)
+        return self.load_history_capture(entries[0]) if entries else None
+
+    def edit_last_capture(self) -> QWidget | None:
+        """Open the editor without a fresh capture ("Open editor" action).
+
+        ``editor.open_mode``: ``"ask"`` shows the picker (last capture, the 10
+        most recent, clipboard, a file, or the full history); ``"last"`` opens
+        the newest capture straight away.
+        """
+        if self.app.settings.get("editor.open_mode") == "ask":
+            return self.show_editor_picker()
+        result = self.last_capture()
+        if result is None:
+            return self.show_editor_picker()
+        return self.open_editor(result)
+
+    def show_editor_picker(self) -> QWidget:
+        from screenpilot.ui.editor_picker import EditorPicker
+
+        return self._show_single("editor_picker", lambda: EditorPicker(self))
+
+    def open_image_file(self, parent: QWidget | None = None) -> CaptureResult | None:
+        from PIL import Image
+
+        from screenpilot.capture.image import CapturedImage
+
+        path, _ = QFileDialog.getOpenFileName(
+            parent, self.t("editor.pick.file"), str(self.app.output_dir), "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
+        )
+        if not path:
+            return None
+        try:
+            with Image.open(path) as img:
+                image = CapturedImage.from_pil(img)
+        except OSError as exc:
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            return None
+        return CaptureResult(image, "region", Rect(0, 0, image.width, image.height), metadata={"source": path})
+
+    def clipboard_capture(self) -> CaptureResult | None:
+        """The image currently on the clipboard (copied from any app), if any."""
+        from PySide6.QtGui import QGuiApplication, QImage
+
+        from screenpilot.capture.image import CapturedImage
+
+        qimg = QGuiApplication.clipboard().image()
+        if qimg.isNull():
+            return None
+        qimg = qimg.convertToFormat(QImage.Format.Format_RGB32)
+        w, h = qimg.width(), qimg.height()
+        data = bytes(qimg.constBits())[: qimg.bytesPerLine() * h]
+        if qimg.bytesPerLine() != w * 4:  # defensive: drop row padding
+            data = b"".join(data[y * qimg.bytesPerLine() : y * qimg.bytesPerLine() + w * 4] for y in range(h))
+        image = CapturedImage(w, h, data)
+        return CaptureResult(image, "region", Rect(0, 0, w, h), metadata={"source": "clipboard"})
 
     def load_history_capture(self, entry) -> CaptureResult | None:
         from PIL import Image
@@ -886,10 +1073,13 @@ class AppController(QObject):
 
         return self._show_single("hub", lambda: CaptureHub(self))
 
-    def show_settings(self) -> QWidget:
+    def show_settings(self, page: str | None = None) -> QWidget:
         from screenpilot.ui.settings_dialog import SettingsDialog
 
-        return self._show_single("settings", lambda: SettingsDialog(self))
+        dialog = self._show_single("settings", lambda: SettingsDialog(self))
+        if page:
+            dialog.show_page(page)
+        return dialog
 
     def show_history(self) -> QWidget:
         from screenpilot.ui.history_window import HistoryWindow
@@ -940,6 +1130,7 @@ class AppController(QObject):
     # -- lifecycle ------------------------------------------------------------
     def shutdown(self) -> None:
         log.info("Shutting down UI")
+        self._esc_timer.stop()
         self.recording.shutdown()
         for window in list(self._windows.values()) + list(self.pins):
             window.close()

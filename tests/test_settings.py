@@ -68,6 +68,17 @@ class SettingsTests(unittest.TestCase):
         actions.append({"id": "x"})
         self.assertEqual(len(s.get("workflow.after_capture")), 2)
 
+    def test_v1_settings_get_new_gif_defaults_only_when_unchanged(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps({"schema_version": 1, "recording": {"gif_max_width": 960, "gif_fps": 8}}), encoding="utf-8")
+        s = Settings(self.path).load()
+        self.assertEqual(s.get("recording.gif_max_width"), 1920)  # old default -> new default
+        self.assertEqual(s.get("recording.gif_fps"), 8)  # the user's own choice is kept
+        self.assertEqual(s.get("schema_version"), 2)
+        self.assertTrue(s.get("selector.action_bar"))
+        self.assertEqual(s.get("capture.region_action"), "workflow")
+        self.assertEqual(s.get("editor.open_mode"), "ask")
+
 
 if __name__ == "__main__":
     unittest.main()

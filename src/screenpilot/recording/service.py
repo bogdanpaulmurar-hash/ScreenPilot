@@ -39,6 +39,7 @@ class RecordingService:
         extra_dirs: tuple[Path, ...] = (),
         source_factory: Callable[[], FrameSource] | None = None,
         ffmpeg_prober: Callable[[Path], FfmpegInfo] = probe,
+        ffmpeg_search_dirs: Callable[[], list[Path]] | None = None,
     ) -> None:
         self.settings = settings
         self.backend = backend
@@ -49,8 +50,10 @@ class RecordingService:
         self.extra_dirs = extra_dirs
         self.source_factory = source_factory or (lambda: default_source(self.backend))
         self.ffmpeg_prober = ffmpeg_prober
+        self.ffmpeg_search_dirs = ffmpeg_search_dirs
         self._ffmpeg: FfmpegInfo | None = None
         self._ffmpeg_key: str | None = None
+        self._missing_logged = False
         self._lock = threading.Lock()
         self.current: Recorder | None = None
 
@@ -63,18 +66,31 @@ class RecordingService:
         return opts
 
     def ffmpeg(self, *, refresh: bool = False) -> FfmpegInfo | None:
-        """Located and probed ffmpeg, cached until the configured path changes."""
+        """Located and probed ffmpeg.
+
+        A found ffmpeg is cached until the configured path changes (or the file
+        disappears). "Not found" is never cached: looking again is a few file
+        checks, and it lets an FFmpeg installed while ScreenPilot runs work at
+        the very next recording, without a restart.
+        """
         configured = self.settings.get("recording.ffmpeg_path", "") or ""
         with self._lock:
-            if refresh or self._ffmpeg_key != configured:
+            cached = self._ffmpeg
+            stale = cached is None or self._ffmpeg_key != configured or not cached.path.exists()
+            if refresh or stale:
                 self._ffmpeg_key = configured
                 self._ffmpeg = None
-                path = find_ffmpeg(configured, self.app_dir, self.extra_dirs)
+                path = find_ffmpeg(configured, self.app_dir, self.extra_dirs, search_dirs=self.ffmpeg_search_dirs)
                 if path is None:
-                    log.info("ffmpeg not found (configured=%r); MP4 recording unavailable", configured)
+                    if cached is not None or refresh or not self._missing_logged:
+                        log.info("ffmpeg not found (configured=%r); MP4 recording unavailable", configured)
+                    self._missing_logged = True
+                elif cached is not None and cached.path == path and not refresh:
+                    self._ffmpeg = cached  # same binary, keep the probe (and encoder checks)
                 else:
                     try:
                         self._ffmpeg = self.ffmpeg_prober(path)
+                        self._missing_logged = False
                     except RecordingError as exc:
                         log.warning("%s", exc)
             return self._ffmpeg

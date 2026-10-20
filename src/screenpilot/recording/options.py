@@ -21,8 +21,8 @@ def _clamp(value: int, bounds: tuple[int, int]) -> int:
 class RecordingOptions:
     format: str = "mp4"
     fps: int = 30
-    gif_fps: int = 12
-    gif_max_width: int = 960
+    gif_fps: int = 15
+    gif_max_width: int = 1920
     quality: int = 23
     encoder: str = "auto"
     microphone: str = ""  # DirectShow device name, "" = no microphone

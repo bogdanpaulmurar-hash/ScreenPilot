@@ -57,8 +57,24 @@ capture reliability, hotkey ergonomics.
 | **M3 OCR** ✅ (v1) | `OcrEngine` protocol, Windows OCR backend (EN/RO/DE), confidence, review, search, OCR→clipboard/TXT/MD | Screenshot→OCR→Clipboard in ≤ 2 clicks |
 | **M4 Documentation** ✅ (v1: procedures → DOCX/PDF/HTML/MD) | workflow capture sessions, document model, exports PDF/DOCX/HTML/MD, templates, help center, tutorials, tester mode, samples | one-click procedure document |
 | **M5 Recording** ✅ (v1) | region/window/screen to MP4 (external ffmpeg, hardware encoders) or GIF (built-in), mic + loopback audio, cursor highlight, click ripples, zoom, pause | 1080p30 on a 4-year-old laptop (to verify on real hardware) |
-| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in) | Loom-style tutorial in one take |
+| **M5.0.1 Pilot feedback** ✅ (0.5.1) | FFmpeg found without restart, full-resolution streamed GIF, PNG on the clipboard, selector fast on spreadsheets + focus fix, Esc everywhere (pause + ask for recording/scrolling), optional action bar, Region "copy only", editor picker (last / 10 recent / clipboard / file / all), Copy & close, Explorer opens the right folder | issues from the first real-use round fixed |
+| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in), **video annotations v1** (step numbers / arrows / text with start–end time, burned in by ffmpeg at export — see below) | Loom-style tutorial in one take |
 | **M6 Intelligence** | UI element detection, anchored annotations, AI extension layer, Autopilot integration | anchor callouts to detected buttons |
+
+### Video annotations (proposal, not started)
+
+Two complementary options, both outside the capture loop so recording speed is unchanged:
+
+1. **Live annotations while recording** — a transparent "ink" overlay over the
+   recorded area (toggle in the control bar): click to drop a numbered step,
+   drag for an arrow or rectangle. The overlay is a normal window, so it is
+   simply captured with the frames (no per-frame cost). Works for MP4 and GIF.
+2. **Post-recording editor (with the trim editor)** — a timeline where each
+   annotation (step, arrow, rectangle, text, blur) has a start and end time.
+   Export re-encodes once with ffmpeg (`overlay` filter with `enable='between(t,a,b)'`
+   on PNGs rendered by the existing editor renderer), so it needs FFmpeg; a GIF
+   can be annotated by rewriting its frames with Pillow. Cost: one re-encode
+   at export (about real time on a laptop with a hardware encoder).
 
 ## 4. Quick wins (next, in order)
 

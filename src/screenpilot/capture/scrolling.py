@@ -126,6 +126,14 @@ class Scroller(Protocol):
     def stop_requested(self) -> bool: ...
 
 
+def _wait_released(scroller: Scroller, sleep: Callable[[float], None], timeout: float = 3.0) -> None:
+    """After "continue", wait until Esc is up so the same press is not read again."""
+    waited = 0.0
+    while scroller.stop_requested() and waited < timeout:
+        sleep(0.05)
+        waited += 0.05
+
+
 def notches_for(rect: Rect) -> int:
     """Scroll less than one view height so consecutive frames overlap."""
     return max(1, min(5, rect.height // 220))
@@ -140,10 +148,17 @@ def capture_scrolling(
     max_height: int = DEFAULT_MAX_HEIGHT,
     settle: Callable[[], None] = lambda: time.sleep(0.35),
     progress: Callable[[int, int], None] | None = None,
+    on_stop: Callable[[], str] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> tuple[CapturedImage, str]:
     """Scroll ``rect`` until the content stops moving; returns (image, reason).
 
-    reason is one of "end", "stopped", "max_height", "max_frames", "no_match".
+    reason is one of "end", "stopped", "cancelled", "max_height", "max_frames",
+    "no_match".
+
+    When the scroller reports a stop request (Esc), ``on_stop`` decides what
+    happens while scrolling is paused: ``"continue"``, ``"stop"`` (keep what
+    was captured) or ``"cancel"`` (discard). Without it, Esc stops.
     """
     stitcher = ScrollStitcher(grab(rect), max_height=max_height)
     notches = notches_for(rect)
@@ -151,8 +166,12 @@ def capture_scrolling(
     still = 0
     for _ in range(max_frames):
         if scroller.stop_requested():
-            reason = "stopped"
-            break
+            decision = on_stop() if on_stop is not None else "stop"
+            if decision == "continue":
+                _wait_released(scroller, sleep)
+            else:
+                reason = "cancelled" if decision == "cancel" else "stopped"
+                break
         scroller.scroll(rect, notches)
         settle()
         try:

@@ -49,6 +49,7 @@ from screenpilot.workflow import render_filename
 log = logging.getLogger(__name__)
 
 IMAGE_FORMATS = ("png", "jpg", "bmp")
+FFMPEG_INSTALL_COMMAND = "winget install --id Gyan.FFmpeg -e"
 UI_WORKFLOW_ACTIONS = ("save", "save_as", "copy_image", "copy_path", "open_folder", "open_editor")
 FILENAME_TOKENS = "{date} {time} {datetime} {mode} {width} {height} {window}"
 STATUS_KEYS = {
@@ -88,6 +89,7 @@ class SettingsDialog(QDialog):
         self.nav.setIconSize(QSize(18, 18))
         self.stack = QStackedWidget()
         self.page_titles: list[QLabel] = []
+        self.page_index: dict[str, int] = {}
         for icon_name, key, builder in (
             ("general", "settings.nav.general", self._build_general),
             ("region", "settings.nav.capture", self._build_capture),
@@ -102,6 +104,7 @@ class SettingsDialog(QDialog):
             self.nav.addItem(item)
             self.rt.bind(item.setText, key)
             wrapped = self._page(key, builder())
+            self.page_index[key.rsplit(".", 1)[-1]] = self.stack.count()
             self.stack.addWidget(wrapped)
             if key == "settings.nav.diagnostics":
                 self._diag_page = wrapped
@@ -137,6 +140,12 @@ class SettingsDialog(QDialog):
         layout.setSpacing(0)
         layout.addLayout(side)
         layout.addLayout(right, 1)
+
+    def show_page(self, name: str) -> None:
+        """Select a page by its short name: general, capture, modes, after_capture, recording, hotkeys, diagnostics."""
+        index = self.page_index.get(name)
+        if index is not None:
+            self.nav.setCurrentRow(index)
 
     @property
     def tabs(self) -> "SettingsDialog._NavAdapter":
@@ -254,6 +263,12 @@ class SettingsDialog(QDialog):
         column.addWidget(
             self._row("chevron_down", "settings.edge_bar", "settings.edge_bar.desc", self._toggle("general.edge_bar"))
         )
+        column.addWidget(
+            self._row(
+                "edit", "settings.editor_open", "settings.editor_open.desc",
+                self._combo("editor.open_mode", [("", "ask"), ("", "last")], tr_prefix="settings.editor_open"),
+            )
+        )
         autostart_toggle = self._toggle("general.start_with_windows")
         if sys.platform != "win32":
             autostart_toggle.setEnabled(False)
@@ -307,6 +322,15 @@ class SettingsDialog(QDialog):
         self.rt.bind(self.delay.setSuffix, "settings.seconds_suffix")
         self.delay.valueChanged.connect(lambda v: self._set("capture.default_delay_seconds", v))
         column.addWidget(self._row("timer", "settings.default_delay", "settings.default_delay.desc", self.delay))
+        column.addWidget(
+            self._row(
+                "region", "settings.region_action", "settings.region_action.desc",
+                self._combo("capture.region_action", [("", "workflow"), ("", "copy")], tr_prefix="settings.region_action"),
+            )
+        )
+        column.addWidget(
+            self._row("check", "settings.action_bar", "settings.action_bar.desc", self._toggle("selector.action_bar"))
+        )
 
         name_card = Card(padding=16, spacing=8)
         head = SettingRow("edit")
@@ -776,13 +800,14 @@ class SettingsDialog(QDialog):
         column.addWidget(self._row("select", "settings.rec.clicks", "settings.rec.clicks.desc", self._toggle("recording.click_effects")))
         column.addWidget(self._row("timer", "settings.rec.countdown", None, self._spin("recording.countdown", 0, 10, "settings.seconds_suffix")))
         column.addWidget(self._row("history", "settings.rec.max_minutes", None, self._spin("recording.max_minutes", 1, 240, "settings.rec.minutes_suffix")))
+        column.addWidget(self._row("pause", "settings.rec.esc_pauses", "settings.rec.esc_pauses.desc", self._toggle("recording.esc_pauses")))
 
         gif_title = label(role="subtitle")
         self.rt.bind(gif_title.setText, "settings.rec.gif")
         column.addSpacing(8)
         column.addWidget(gif_title)
         column.addWidget(self._row("film", "settings.rec.gif_fps", None, self._spin("recording.gif_fps", 5, 30, "settings.rec.fps_suffix")))
-        column.addWidget(self._row("image", "settings.rec.gif_width", None, self._spin("recording.gif_max_width", 320, 1920, "settings.rec.px_suffix", step=80)))
+        column.addWidget(self._row("image", "settings.rec.gif_width", None, self._spin("recording.gif_max_width", 320, 3840, "settings.rec.px_suffix", step=80)))
 
         column.addSpacing(8)
         folder_card, _ = self._path_card(
@@ -796,11 +821,22 @@ class SettingsDialog(QDialog):
         )
         self.ffmpeg_status = label(role="caption", wrap=True)
         ffmpeg_card.body.addWidget(self.ffmpeg_status)
+        buttons = QHBoxLayout()
         check = QPushButton()
         self.rt.bind(check.setText, "settings.rec.ffmpeg.check")
         check.clicked.connect(lambda: self._refresh_ffmpeg_status(refresh=True))
-        ffmpeg_card.body.addWidget(check, 0, Qt.AlignmentFlag.AlignLeft)
+        buttons.addWidget(check)
+        copy_cmd = QPushButton()
+        self.rt.bind(copy_cmd.setText, "settings.rec.ffmpeg.copy_command")
+        self.rt.bind(copy_cmd.setToolTip, "settings.rec.ffmpeg.copy_command.tip", command=FFMPEG_INSTALL_COMMAND)
+        copy_cmd.clicked.connect(self._copy_ffmpeg_command)
+        buttons.addWidget(copy_cmd)
+        buttons.addStretch(1)
+        ffmpeg_card.body.addLayout(buttons)
         column.addWidget(ffmpeg_card)
+        column.addWidget(
+            self._row("video", "settings.rec.gif_notice", "settings.rec.gif_notice.desc", self._toggle("recording.gif_fallback_notice"))
+        )
         column.addStretch(1)
         self.ffmpeg_edit.editingFinished.connect(lambda: self._refresh_ffmpeg_status(refresh=True))
         self._refresh_ffmpeg_status()
@@ -813,6 +849,10 @@ class SettingsDialog(QDialog):
             self.ffmpeg_status.setText(self.t("settings.rec.ffmpeg.missing"))
         else:
             self.ffmpeg_status.setText(self.t("settings.rec.ffmpeg.found", version=info.version, path=str(info.path)))
+
+    def _copy_ffmpeg_command(self) -> None:
+        self.controller.copy_text(FFMPEG_INSTALL_COMMAND)
+        self.ffmpeg_status.setText(self.t("settings.rec.ffmpeg.command_copied", command=FFMPEG_INSTALL_COMMAND))
 
     def _detect_audio_devices(self) -> None:
         devices = self.app.recording.audio_devices()

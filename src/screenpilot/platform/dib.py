@@ -1,4 +1,4 @@
-"""Device-independent bitmap encoding (pure Python, testable on any OS)."""
+"""Clipboard image encodings (pure Python + Pillow, testable on any OS)."""
 
 from __future__ import annotations
 
@@ -22,3 +22,17 @@ def dib_from_image(image: CapturedImage) -> bytes:
         bgr[2::3] = row[2::4]
         rows.append(bytes(bgr) + b"\x00" * padding)
     return header + b"".join(rows)
+
+
+def png_from_image(image: CapturedImage) -> bytes:
+    """PNG bytes for the registered "PNG" clipboard format.
+
+    Office, Teams, Outlook and browsers prefer it over ``CF_DIB``: a pasted
+    PNG stays lossless, while a pasted bitmap is often recompressed as JPEG.
+    Fast compression keeps copying large captures quick.
+    """
+    import io
+
+    buffer = io.BytesIO()
+    image.to_pil().save(buffer, "PNG", compress_level=1)
+    return buffer.getvalue()
