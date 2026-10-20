@@ -309,6 +309,7 @@ class GifSinkTests(unittest.TestCase):
                 sink.write(bgra(64, 64, (i * 40, 0, 0)), i * 0.1)
             self.assertTrue(sink.full)
             self.assertEqual(sink.frames_dropped, 2)
+            sink.abort()  # closes the .part file (Windows cannot delete an open file)
 
 
 class MovingCursorBackend(DemoBackend):
