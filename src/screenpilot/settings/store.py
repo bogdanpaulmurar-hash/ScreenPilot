@@ -77,6 +77,8 @@ DEFAULTS: dict[str, Any] = {
         "output_dir": "",
         "open_folder_after": False,
         "gif_fallback_notice": True,  # tell the user once per recording that MP4 needs FFmpeg
+        "ink_color": "#d13438",  # live annotations while recording
+        "ink_fade_seconds": 0,  # 0 = keep until cleared; otherwise each annotation fades after N s
         "esc_pauses": True,  # Esc pauses the recording and asks to continue / stop / discard
     },
     "workflow": {

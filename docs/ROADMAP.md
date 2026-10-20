@@ -59,17 +59,19 @@ capture reliability, hotkey ergonomics.
 | **M5 Recording** ✅ (v1) | region/window/screen to MP4 (external ffmpeg, hardware encoders) or GIF (built-in), mic + loopback audio, cursor highlight, click ripples, zoom, pause | 1080p30 on a 4-year-old laptop (to verify on real hardware) |
 | **M5.0.1 Pilot feedback** ✅ (0.5.1) | FFmpeg found without restart, full-resolution streamed GIF, PNG on the clipboard, selector fast on spreadsheets + focus fix, Esc everywhere (pause + ask for recording/scrolling), optional action bar, Region "copy only", editor picker (last / 10 recent / clipboard / file / all), Copy & close, Explorer opens the right folder | issues from the first real-use round fixed |
 | **M5.0.2 Sharpness** ✅ (0.5.2) | captures shown 1:1 in physical pixels in the editor, Number steps, OCR and thumbnails on 125 %/150 % screens; MP4 converted with BT.709 + accurate rounding, Balanced quality 23→20 | text in captures and videos looks as sharp as on screen |
-| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in), **video annotations v1** (step numbers / arrows / text with start–end time, burned in by ffmpeg at export — see below) | Loom-style tutorial in one take |
+| **M5.0.3 Live annotations** ✅ (0.6.0) | pen on the recording bar: numbered steps, arrows, rectangles, highlights, text burned into MP4/GIF while recording; undo/clear, optional fade-out, colour; `record.draw` hotkey; IT feature `record_annotations`; headless `recorder.ink` API | step-by-step video tutorial without post-editing |
+| **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in), **post-recording annotation editor** (start–end time per annotation, burned in by ffmpeg at export — option 2 below) | Loom-style tutorial in one take |
 | **M6 Intelligence** | UI element detection, anchored annotations, AI extension layer, Autopilot integration | anchor callouts to detected buttons |
 
-### Video annotations (proposal, not started)
+### Video annotations (option 1 done in 0.6.0, option 2 planned)
 
 Two complementary options, both outside the capture loop so recording speed is unchanged:
 
 1. **Live annotations while recording** — a transparent "ink" overlay over the
    recorded area (toggle in the control bar): click to drop a numbered step,
-   drag for an arrow or rectangle. The overlay is a normal window, so it is
-   simply captured with the frames (no per-frame cost). Works for MP4 and GIF.
+   drag for an arrow or rectangle. **Done in 0.6.0** — implemented as burn-in
+   by the recorder with the overlay excluded from capture (ADR-18), so it also
+   works headless. Works for MP4 and GIF.
 2. **Post-recording editor (with the trim editor)** — a timeline where each
    annotation (step, arrow, rectangle, text, blur) has a start and end time.
    Export re-encodes once with ffmpeg (`overlay` filter with `enable='between(t,a,b)'`

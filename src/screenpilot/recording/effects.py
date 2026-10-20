@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 
 from PIL import Image, ImageDraw
 
+from screenpilot.recording.ink import InkLayer, InkRenderer
+
 HIGHLIGHT_RADIUS = 26
 HIGHLIGHT_COLOR = (255, 214, 0, 80)
 LEFT_CLICK_COLOR = (0, 120, 212, 230)
@@ -80,6 +82,8 @@ class EffectRenderer:
     _buttons: tuple[bool, bool] = (False, False)
     _zoom: float = 1.0
     _center: tuple[float, float] | None = None
+    ink: InkLayer | None = None  # live annotations, drawn under the cursor effects
+    _ink: InkRenderer = field(default_factory=InkRenderer)
 
     # -- state ------------------------------------------------------------------
     def toggle_zoom(self) -> bool:
@@ -88,12 +92,14 @@ class EffectRenderer:
 
     @property
     def active(self) -> bool:
-        return self.options.highlight or self.options.clicks or self.zoom_on or self._zoom > 1.001
+        has_ink = self.ink is not None and self.ink.burn_in and not self.ink.empty
+        return self.options.highlight or self.options.clicks or self.zoom_on or self._zoom > 1.001 or has_ink
 
     def feed_buttons(self, buttons: tuple[bool, bool], cursor: tuple[int, int] | None, now: float) -> None:
         """Start a ripple on each button press (rising edge)."""
         left, right = buttons
-        if cursor is not None and self.options.clicks:
+        drawing = self.ink is not None and self.ink.drawing  # clicks are pen strokes, not UI clicks
+        if cursor is not None and self.options.clicks and not drawing:
             if left and not self._buttons[0]:
                 self._ripples.append(Ripple(cursor[0], cursor[1], now, right=False))
             if right and not self._buttons[1]:
@@ -114,6 +120,7 @@ class EffectRenderer:
         if not self.active:
             return frame
         buf = bytearray(frame)
+        self._ink.apply(buf, width, height, self.ink)
         inside = cursor is not None and 0 <= cursor[0] < width and 0 <= cursor[1] < height
         if inside and self.options.highlight:
             _draw_patch(buf, width, height, cursor, self._highlight)

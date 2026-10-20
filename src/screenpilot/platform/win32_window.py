@@ -51,6 +51,40 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI
     _user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
     _user32.GetAsyncKeyState.restype = ctypes.c_short
     _kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+    _GetWindowLong = getattr(_user32, "GetWindowLongPtrW", _user32.GetWindowLongW)
+    _SetWindowLong = getattr(_user32, "SetWindowLongPtrW", _user32.SetWindowLongW)
+    _GetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int]
+    _GetWindowLong.restype = ctypes.c_ssize_t
+    _SetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+    _SetWindowLong.restype = ctypes.c_ssize_t
+
+GWL_EXSTYLE = -20
+WS_EX_TRANSPARENT = 0x00000020
+WS_EX_LAYERED = 0x00080000
+WS_EX_NOACTIVATE = 0x08000000
+
+
+def set_click_through(hwnd: int, on: bool) -> bool:
+    """Let mouse clicks pass through window ``hwnd`` (``on``) or be caught by it.
+
+    Changes only the extended style, so the window keeps its handle and its
+    capture exclusion (re-creating it through Qt window flags would lose both).
+    """
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:  # pragma: no cover - Windows only
+        handle = wintypes.HWND(int(hwnd))
+        style = _GetWindowLong(handle, GWL_EXSTYLE)
+        if on:
+            style |= WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE
+        else:
+            style &= ~(WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
+            style |= WS_EX_LAYERED
+        _SetWindowLong(handle, GWL_EXSTYLE, style)
+        return True
+    except Exception:  # noqa: BLE001
+        log.debug("set_click_through failed", exc_info=True)
+        return False
 
 
 def force_foreground(hwnd: int) -> bool:

@@ -35,6 +35,9 @@ class RecordingOptions:
     countdown: int = 3
     max_minutes: int = 60
     ffmpeg_path: str = ""
+    ink_color: str = "#d13438"  # live annotations (steps, arrows, …)
+    ink_fade_seconds: int = 0  # 0 = annotations stay until cleared
+
 
     def __post_init__(self) -> None:
         if self.format not in FORMATS:
@@ -47,6 +50,9 @@ class RecordingOptions:
         object.__setattr__(self, "gif_max_width", max(160, min(3840, int(self.gif_max_width))))
         object.__setattr__(self, "countdown", max(0, min(10, int(self.countdown))))
         object.__setattr__(self, "max_minutes", max(1, min(240, int(self.max_minutes))))
+        object.__setattr__(self, "ink_fade_seconds", max(0, min(120, int(self.ink_fade_seconds))))
+        if not (isinstance(self.ink_color, str) and len(self.ink_color) == 7 and self.ink_color.startswith("#")):
+            object.__setattr__(self, "ink_color", "#d13438")
         object.__setattr__(self, "zoom_factor", max(1.25, min(4.0, float(self.zoom_factor))))
 
     @property

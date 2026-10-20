@@ -19,11 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from screenpilot.capture.geometry import Rect
+from screenpilot.capture.geometry import Point, Rect
 from screenpilot.core import diagnostics as diag
 from screenpilot.core.errors import RecordingError, ScreenPilotError
 from screenpilot.recording.effects import EffectOptions, EffectRenderer
 from screenpilot.recording.ffmpeg import even
+from screenpilot.recording.ink import InkLayer
 from screenpilot.recording.options import RecordingOptions
 from screenpilot.recording.source import FrameSource
 
@@ -118,6 +119,7 @@ class Recorder:
                 zoom_factor=options.zoom_factor,
             )
         )
+        self.ink: InkLayer | None = None  # created by start() once the area is known
         self.state = State.IDLE
         self.result: RecordingResult | None = None
         self.error: ScreenPilotError | None = None
@@ -158,6 +160,14 @@ class Recorder:
         self.rect = Rect(rect.x, rect.y, even(rect.width), even(rect.height))
         if self.rect.width < 16 or self.rect.height < 16:
             raise RecordingError("Recording area is too small", message_key="recording.error.too_small")
+        self.ink = InkLayer(
+            self.rect.width,
+            self.rect.height,
+            origin=Point(self.rect.x, self.rect.y),
+            color=self.options.ink_color,
+            fade_seconds=self.options.ink_fade_seconds,
+        )
+        self.effects.ink = self.ink
         self.source.open(self.rect)
         try:
             self.sink = self.sink_factory(self.rect.width, self.rect.height)

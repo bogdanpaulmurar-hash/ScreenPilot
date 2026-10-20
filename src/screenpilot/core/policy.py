@@ -38,6 +38,7 @@ FEATURES = (
     "scrolling",
     "recording",
     "record_audio",
+    "record_annotations",
     "ocr",
     "pin",
     "watermark_off",

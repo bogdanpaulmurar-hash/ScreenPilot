@@ -137,6 +137,7 @@ class AppController(QObject):
             "record.gif": lambda: self.recording.toggle("gif"),
             "record.pause": lambda: self.recording.toggle_pause(),
             "record.zoom": lambda: self.recording.toggle_zoom(),
+            "record.draw": lambda: self.recording.toggle_draw(),
         }
         if register_hotkeys:
             self.register_hotkeys()
@@ -173,6 +174,7 @@ class AppController(QObject):
         "ocr.region": "ocr",
         "record.video": "recording",
         "record.gif": "recording",
+        "record.draw": "record_annotations",
     }
 
     def allowed(self, action: str) -> bool:

@@ -35,6 +35,7 @@ from screenpilot.ui.widgets import IconBadge, IconButton, label, theme
 
 if TYPE_CHECKING:  # pragma: no cover
     from screenpilot.recording import Recorder, RecordingResult
+    from screenpilot.ui.ink_overlay import InkOverlay
     from screenpilot.ui.controller import AppController
 
 log = logging.getLogger(__name__)
@@ -128,10 +129,14 @@ class RecordingBar(QFrame):
 
     pause_clicked = Signal()
     zoom_clicked = Signal()
+    draw_clicked = Signal()
+    tool_clicked = Signal(str)
+    undo_clicked = Signal()
+    clear_clicked = Signal()
     stop_clicked = Signal()
     cancel_clicked = Signal()
 
-    def __init__(self, translator: Translator) -> None:
+    def __init__(self, translator: Translator, *, ink: bool = False) -> None:
         super().__init__(None)
         self.t = translator.t
         self.rt = rt = Retranslator(translator)
@@ -171,6 +176,7 @@ class RecordingBar(QFrame):
         for name, icon_name, key, signal, checkable in (
             ("pause", "pause", "recording.pause", self.pause_clicked, False),
             ("zoom", "zoom", "recording.zoom", self.zoom_clicked, True),
+            ("draw", "pen", "ink.draw", self.draw_clicked, True),
             ("stop", "stop", "recording.stop", self.stop_clicked, False),
             ("cancel", "close", "recording.cancel", self.cancel_clicked, False),
         ):
@@ -186,11 +192,60 @@ class RecordingBar(QFrame):
             button.clicked.connect(signal.emit)
             row.addWidget(button)
             self.buttons[name] = button
+            if name == "draw":
+                button.setVisible(ink)
+                self.tools = self._tool_strip(row)
         self._blink = True
         self._paused: bool | None = None
         self._drag: QPoint | None = None
         self.set_state(0.0, paused=False)
         self.adjustSize()
+
+    def _tool_strip(self, row: QHBoxLayout) -> QFrame:
+        """Ink tools, shown only while drawing: step, arrow, rectangle, highlight, text, undo, clear."""
+        strip = QFrame(self)
+        strip.setObjectName("InkTools")
+        strip.setStyleSheet("QFrame#InkTools { border-left: 1px solid rgba(255,255,255,50); border-right: 1px solid rgba(255,255,255,50); }")
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setSpacing(2)
+        self.tool_buttons: dict[str, QToolButton] = {}
+        entries = (
+            ("step", "steps", "ink.tool.step"),
+            ("arrow", "arrow", "ink.tool.arrow"),
+            ("rect", "rect", "ink.tool.rect"),
+            ("highlight", "highlight", "ink.tool.highlight"),
+            ("text", "text", "ink.tool.text"),
+            ("undo", "undo", "ink.undo"),
+            ("clear", "trash", "ink.clear"),
+        )
+        for index, (name, icon_name, key) in enumerate(entries, start=1):
+            button = QToolButton(strip)
+            button.setIcon(icons.icon(icon_name, "#ffffff", 16))
+            button.setIconSize(QSize(16, 16))
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if name in ("undo", "clear"):
+                self.rt.bind(button.setToolTip, key)
+                button.clicked.connect(self.undo_clicked.emit if name == "undo" else self.clear_clicked.emit)
+            else:
+                button.setCheckable(True)
+                self.rt.bind(button.setToolTip, key, shortcut=str(index))
+                button.clicked.connect(lambda _c=False, n=name: self.tool_clicked.emit(n))
+                self.tool_buttons[name] = button
+            layout.addWidget(button)
+        row.addWidget(strip)
+        strip.hide()
+        return strip
+
+    def set_drawing(self, on: bool, tool: str = "step") -> None:
+        self.buttons["draw"].setChecked(on)
+        self.tools.setVisible(on)
+        self.set_tool(tool)
+        self.adjustSize()
+
+    def set_tool(self, tool: str) -> None:
+        for name, button in getattr(self, "tool_buttons", {}).items():
+            button.setChecked(name == tool)
 
     def set_state(self, elapsed: float, *, paused: bool, finishing: bool = False, zoom: bool | None = None) -> None:
         self.time_label.setText(format_elapsed(elapsed))
@@ -354,6 +409,7 @@ class RecordingController(QObject):
         self.recorder: "Recorder | None" = None
         self.frame: RecordingFrame | None = None
         self.bar: RecordingBar | None = None
+        self.ink: "InkOverlay | None" = None
         self.result_card: RecordingResultCard | None = None
         self._pending: tuple["Recorder", Rect] | None = None
         self._countdown: CountdownOverlay | None = None
@@ -451,9 +507,24 @@ class RecordingController(QObject):
         self.recorder = recorder
         if self.frame is not None:
             self.frame.set_state(waiting=False)
-        self.bar = RecordingBar(self.app.translator)
+        ink_allowed = self.app.policy.allows("record_annotations") and recorder.ink is not None
+        if ink_allowed:
+            from screenpilot.ui.ink_overlay import InkOverlay
+
+            self.ink = InkOverlay(
+                self._area, recorder.ink, self.app.translator,
+                on_escape=self.ctrl.escape_pressed, exclude=exclude_from_capture,
+            )
+        self.bar = RecordingBar(self.app.translator, ink=ink_allowed)
         self.bar.pause_clicked.connect(self.toggle_pause)
         self.bar.zoom_clicked.connect(self.toggle_zoom)
+        self.bar.draw_clicked.connect(self.toggle_draw)
+        self.bar.tool_clicked.connect(self.set_ink_tool)
+        self.bar.undo_clicked.connect(lambda: self.ink and self.ink.undo())
+        self.bar.clear_clicked.connect(lambda: self.ink and self.ink.clear())
+        if self.ink is not None:
+            self.ink.drawing_changed.connect(lambda on: self.bar and self.bar.set_drawing(on, self.ink.tool if self.ink else "step"))
+            self.ink.tool_changed.connect(lambda tool: self.bar and self.bar.set_tool(tool))
         self.bar.stop_clicked.connect(self.stop)
         self.bar.cancel_clicked.connect(self.cancel)
         self.bar.place_near(self._area)
@@ -483,7 +554,26 @@ class RecordingController(QObject):
             if self.bar is not None:
                 self.bar.buttons["zoom"].setChecked(on)
 
+    def toggle_draw(self) -> bool:
+        """Pen on/off: while on, the mouse draws on the recorded area."""
+        if self.ink is None:
+            if self.bar is not None:
+                self.bar.buttons["draw"].setChecked(False)
+            return False
+        on = self.ink.toggle_drawing()
+        if self.bar is not None:
+            self.bar.set_drawing(on, self.ink.tool)
+        return on
+
+    def set_ink_tool(self, tool: str) -> None:
+        if self.ink is not None:
+            self.ink.set_tool(tool)
+            if not self.ink.drawing:
+                self.toggle_draw()
+
     def stop(self) -> None:
+        if self.ink is not None:
+            self.ink.set_drawing(False)
         if self.recorder is not None and self.recorder.active:
             self.recorder.stop()
             if self.bar is not None:
@@ -504,6 +594,9 @@ class RecordingController(QObject):
         recorder = self.recorder
         if recorder is None or not recorder.active:
             return "none"
+        if self.ink is not None and self.ink.drawing:
+            self.toggle_draw()  # first Esc only puts the pen away
+            return "recording.ink"
         if not self.app.settings.get("recording.esc_pauses"):
             return "recording.ignored"
         from screenpilot.recording import State
@@ -640,11 +733,11 @@ class RecordingController(QObject):
 
     def _teardown(self) -> None:
         self._timer.stop()
-        for widget in (self.frame, self.bar):
+        for widget in (self.ink, self.frame, self.bar):
             if widget is not None:
                 widget.close()
                 widget.deleteLater()
-        self.frame = self.bar = None
+        self.frame = self.bar = self.ink = None
         self.recorder = None
         self.changed.emit()
 

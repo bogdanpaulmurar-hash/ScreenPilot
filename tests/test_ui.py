@@ -941,6 +941,54 @@ class RecordingUiTests(UiTestCase):
         self.assertIsNone(self.rec.result_card)
         self.assertEqual(list(self.app.recording.output_dir().glob("*.gif")), [])
 
+    def test_draw_steps_and_arrow_while_recording(self):
+        self.app.settings.set("recording.highlight_cursor", False)
+        self.app.settings.set("recording.click_effects", False)
+        rect = Rect(self.screen_rect.x, self.screen_rect.y, 400, 240)
+        self.assertTrue(self.rec.start(rect, "gif"))
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+        bar, ink = self.rec.bar, self.rec.ink
+        self.assertIsNotNone(ink)
+        self.assertTrue(bar.buttons["draw"].isVisible())
+        QTest.mouseClick(bar.buttons["draw"], Qt.MouseButton.LeftButton)
+        self.assertTrue(ink.drawing and bar.tools.isVisible())
+        self.assertTrue(self.rec.recorder.ink.drawing)
+        QTest.qWaitForWindowExposed(ink)
+        QTest.mouseClick(ink, Qt.MouseButton.LeftButton, pos=QPoint(60, 60))
+        QTest.mouseClick(ink, Qt.MouseButton.LeftButton, pos=QPoint(160, 60))
+        self.assertEqual([v.item.number for v in self.rec.recorder.ink.views()], [1, 2])
+        QTest.keyClick(ink, Qt.Key.Key_2)  # arrow tool
+        self.assertEqual(ink.tool, "arrow")
+        self.assertTrue(bar.tool_buttons["arrow"].isChecked())
+        QTest.mousePress(ink, Qt.MouseButton.LeftButton, pos=QPoint(200, 150))
+        QTest.mouseMove(ink, QPoint(300, 200))
+        QTest.mouseRelease(ink, Qt.MouseButton.LeftButton, pos=QPoint(300, 200))
+        self.assertEqual(len(self.rec.recorder.ink), 3)
+        QTest.qWait(300)
+        shot(bar, "46_recording_bar_drawing")
+        QTest.mouseClick(bar.tool_buttons["step"], Qt.MouseButton.LeftButton)
+        QTest.mouseClick(ink, Qt.MouseButton.RightButton, pos=QPoint(10, 10))  # right-click = undo
+        self.assertEqual(len(self.rec.recorder.ink), 2)
+        self.assertEqual(self.rec.escape(), "recording.ink")  # first Esc only puts the pen away
+        self.assertFalse(ink.drawing or bar.tools.isVisible())
+        QTest.qWait(200)
+        self.rec.stop()
+        card = self.wait_result()
+        self.assertTrue(card.result.path.exists())
+        self.assertIsNone(self.rec.ink)
+
+    def test_policy_can_disable_annotations(self):
+        from screenpilot.core.policy import Policy
+
+        self.app.policy = Policy(disabled=frozenset({"record_annotations"}))
+        self.assertTrue(self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "gif"))
+        self.assertTrue(wait_until(lambda: self.rec.recording))
+        self.assertIsNone(self.rec.ink)
+        self.assertFalse(self.rec.bar.buttons["draw"].isVisible())
+        self.assertFalse(self.rec.toggle_draw())
+        self.rec.cancel()
+        self.assertTrue(wait_until(lambda: not self.rec.active, timeout=10))
+
     def test_policy_blocks_recording_everywhere(self):
         from screenpilot.core.policy import Policy
 

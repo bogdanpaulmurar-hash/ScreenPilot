@@ -802,6 +802,30 @@ class SettingsDialog(QDialog):
         column.addWidget(self._row("history", "settings.rec.max_minutes", None, self._spin("recording.max_minutes", 1, 240, "settings.rec.minutes_suffix")))
         column.addWidget(self._row("pause", "settings.rec.esc_pauses", "settings.rec.esc_pauses.desc", self._toggle("recording.esc_pauses")))
 
+        ink_title = label(role="subtitle")
+        self.rt.bind(ink_title.setText, "settings.rec.ink")
+        column.addSpacing(8)
+        column.addWidget(ink_title)
+        from screenpilot.editor.document import COLORS
+
+        ink_color = self._combo(
+            "recording.ink_color", [(name, value) for name, value in COLORS.items() if name != "white"],
+        )
+        from PySide6.QtGui import QColor as _QColor, QIcon as _QIcon, QPixmap as _QPixmap
+
+        for i, name in enumerate(n for n in COLORS if n != "white"):
+            swatch = _QPixmap(14, 14)
+            swatch.fill(_QColor(COLORS[name]))
+            ink_color.setItemIcon(i, _QIcon(swatch))
+            self.rt.bind(lambda text, i=i: ink_color.setItemText(i, text), f"settings.color.{name}")
+        column.addWidget(self._row("pen", "settings.rec.ink_color", "settings.rec.ink.desc", ink_color))
+        column.addWidget(
+            self._row(
+                "timer", "settings.rec.ink_fade", "settings.rec.ink_fade.desc",
+                self._combo("recording.ink_fade_seconds", [("", v) for v in (0, 3, 5, 10, 30)], tr_prefix="settings.rec.ink_fade"),
+            )
+        )
+
         gif_title = label(role="subtitle")
         self.rt.bind(gif_title.setText, "settings.rec.gif")
         column.addSpacing(8)

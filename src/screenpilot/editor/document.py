@@ -285,6 +285,24 @@ def _draw_shape(img: Image.Image, overlay: ImageDraw.ImageDraw, s: Shape, number
         overlay.text((c.x, c.y), label, fill=(255, 255, 255, 255), font=font(round(d * (0.55 if len(label) < 2 else 0.45)), True), anchor="mm")
 
 
+def draw_shape(img: Image.Image, overlay: ImageDraw.ImageDraw, s: Shape, number: int | None) -> None:
+    """Public entry for other engines (recording annotations) that draw editor shapes."""
+    _draw_shape(img, overlay, s, number)
+
+
+def shape_extent(s: Shape) -> Rect:
+    """Pixels a vector shape may touch (stroke, arrow head, step shadow, text)."""
+    if s.kind == "text":
+        t = text_bounds(s)
+        return Rect(t.x - 4, t.y - 4, t.width + 8, t.height + 8)
+    if s.kind == "step":
+        d = step_diameter(s)
+        return Rect(s.p1.x - d // 2 - 4, s.p1.y - d // 2 - 4, d + 10, d + 10)
+    pad = max(s.width * 4, 12) + 2 if s.kind == "arrow" else s.width + 2
+    b = s.bounds
+    return Rect(b.x - pad, b.y - pad, b.width + 2 * pad, b.height + 2 * pad)
+
+
 def render(image: CapturedImage, doc: EditorDocument, *, apply_crop: bool = True, skip: Iterable[int] = ()) -> CapturedImage:
     """Flatten the document onto the image."""
     base = image.to_pil().convert("RGB")
