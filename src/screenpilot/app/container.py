@@ -97,12 +97,15 @@ class ScreenPilotApp:
         )
         return workflow.run(ctx, self.actions), ctx
 
-    def shutdown(self) -> None:
-        try:
-            self.settings.save()
-            self.hotkeys.save(self.paths.hotkeys_file)
-        except OSError:
-            log.exception("Could not persist state on shutdown")
+    def shutdown(self, *, persist: bool = True) -> None:
+        """``persist=False`` for command-line runs: they must not overwrite settings the
+        desktop app (possibly running at the same time) changed meanwhile."""
+        if persist:
+            try:
+                self.settings.save()
+                self.hotkeys.save(self.paths.hotkeys_file)
+            except OSError:
+                log.exception("Could not persist state on shutdown")
         log.info("ScreenPilot stopped")
         self.diagnostics.close()
         close_logging()

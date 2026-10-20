@@ -68,6 +68,7 @@ class AppController(QObject):
     notify = Signal(str, str, bool)  # title, body, is_error
     notify_action = Signal(str, str, bool, object)  # title, body, is_error, callable run when the message is clicked
     hotkeys_changed = Signal()
+    remote_command = Signal(object)  # dict forwarded by another start (DevPilot, CLI, shortcut)
     captured = Signal(object, object, str)  # CaptureResult, saved Path | None, error message
     ocr_finished = Signal(object, object, object)  # window, OcrResult | None, error str | None
     interval_changed = Signal()
@@ -109,6 +110,7 @@ class AppController(QObject):
         self.ocr_finished.connect(self._on_ocr_finished)
         self.ocr_engine_factory = None  # tests inject a fake engine
         self.hotkey_pressed.connect(self._on_hotkey)
+        self.remote_command.connect(self.run_remote)
         self.captured.connect(self._on_captured)
         from screenpilot.ui.recording import RecordingController
 
@@ -1165,7 +1167,41 @@ class AppController(QObject):
             log.exception("Could not open %s", folder)
 
     # -- lifecycle ------------------------------------------------------------
-    def shutdown(self) -> None:
+    # -- commands from other processes ------------------------------------------
+    REMOTE_EXTRAS = ("app.show_hub", "app.settings", "app.quit")
+
+    def remote_actions(self) -> list[str]:
+        return sorted(set(self.actions) | set(self.REMOTE_EXTRAS))
+
+    def accept_remote(self, message: dict) -> dict:
+        """Runs on the instance-server thread: validate, then hand over to the GUI thread."""
+        if message.get("cmd") != "action":
+            return {"ok": False, "error": "unknown command"}
+        action = str(message.get("action", ""))
+        if action not in self.remote_actions():
+            return {"ok": False, "error": f"unknown action {action!r}", "actions": self.remote_actions()}
+        self.remote_command.emit(message)
+        return {"ok": True}
+
+    def run_remote(self, message: dict) -> None:
+        action = str(message.get("action", ""))
+        args = message.get("args") or {}
+        log.info("Forwarded action: %s %s", action, args or "")
+        if action == "app.show_hub":
+            self.show_hub()
+        elif action == "app.settings":
+            self.show_settings(args.get("page"))
+        elif action == "app.quit":
+            self.quit()
+        elif action == "capture.delayed" and args.get("seconds"):
+            self.capture_delayed(max(1, int(float(args["seconds"]))))
+        elif action == "app.edit_video" and args.get("path"):
+            self.open_video_editor(Path(str(args["path"])))
+        else:
+            # The caller's window (DevPilot hub, a menu) is closing: let it go before capturing.
+            self.trigger(action, from_menu=True)
+
+    def shutdown(self, *, persist: bool = True) -> None:
         log.info("Shutting down UI")
         self._esc_timer.stop()
         self.recording.shutdown()
@@ -1179,7 +1215,7 @@ class AppController(QObject):
         self._worker.shutdown(wait=True)
         self.bridge.close()
         self.retranslator.dispose()
-        self.app.shutdown()
+        self.app.shutdown(persist=persist)
 
     def quit(self) -> None:
         self.shutdown()

@@ -647,5 +647,12 @@
   "cli.video.progress": "{percent} %",
   "cli.video.saved": "Salvat {path} ({duration} s, {count} adnotări)",
   "cli.yes": "da",
-  "cli.no": "nu"
+  "cli.no": "nu",
+  "action.app.show_hub": "Deschide ScreenPilot (Capture Hub)",
+  "action.app.settings": "Setări",
+  "action.app.quit": "Închide ScreenPilot",
+  "cli.action.unknown": "Acțiune necunoscută: {action}. Vezi: python -m screenpilot action --list",
+  "cli.action.failed": "ScreenPilot nu a rulat acțiunea: {reason}",
+  "cli.action.not_running": "ScreenPilot nu rulează.",
+  "settings.start_with_windows.devpilot": "DevPilot a pornit ScreenPilot și se ocupă de pornirea cu Windows (DevPilot › Startup & conflicts)."
 }

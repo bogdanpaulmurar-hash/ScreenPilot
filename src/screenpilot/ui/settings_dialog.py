@@ -270,8 +270,13 @@ class SettingsDialog(QDialog):
             )
         )
         autostart_toggle = self._toggle("general.start_with_windows")
+        from screenpilot.platform import devpilot
+
         if sys.platform != "win32":
             autostart_toggle.setEnabled(False)
+        elif devpilot.owns("autostart"):
+            autostart_toggle.setEnabled(False)
+            self.rt.bind(autostart_toggle.setToolTip, "settings.start_with_windows.devpilot")
         column.addWidget(
             self._row("logo", "settings.start_with_windows", "settings.start_with_windows.desc", autostart_toggle)
         )

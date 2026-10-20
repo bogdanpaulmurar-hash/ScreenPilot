@@ -44,6 +44,27 @@ def self_test() -> int:
             return 2
 
 
+def _option(args: list[str], name: str) -> str | None:
+    if name in args:
+        index = args.index(name)
+        if index + 1 < len(args):
+            return args[index + 1]
+    return None
+
+
+def startup_command(args: list[str]) -> dict:
+    """What this start asks for: an action (``--action id [--seconds n] [--path p]``) or just the app."""
+    from screenpilot.instance import action_message
+
+    action = _option(args, "--action")
+    if action:
+        seconds = _option(args, "--seconds")
+        return action_message(action, seconds=float(seconds) if seconds else None, path=_option(args, "--path"))
+    if "--autostart" in args:
+        return {"cmd": "ping"}  # started with Windows while already running: nothing to show
+    return action_message("app.show_hub")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import time
 
@@ -51,12 +72,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "--self-test" in args:
         return self_test()
     started = time.perf_counter()
+
+    # Already running? Hand the request over (hub, region capture, …) and exit:
+    # no second tray icon, no hotkey conflicts, no "already running" box.
+    from screenpilot.core.paths import resolve_paths
+    from screenpilot.instance import send
+
+    command = startup_command(args)
+    data_dir = resolve_paths().ensure().data_dir
+    if send(data_dir, command) is not None:
+        log.info("ScreenPilot is already running: request forwarded (%s)", command.get("action", command["cmd"]))
+        return 0
     try:
-        from PySide6.QtCore import QLockFile
-        from PySide6.QtWidgets import QApplication, QMessageBox
+        from PySide6.QtWidgets import QApplication
     except ImportError:
         print("The desktop UI needs PySide6: pip install \"screenpilot[ui]\"", file=sys.stderr)
         return 3
+
+    from PySide6.QtCore import QTimer
 
     from screenpilot.app import create_app
     from screenpilot.platform.autostart import Autostart, set_app_user_model_id
@@ -87,31 +120,41 @@ def main(argv: Sequence[str] | None = None) -> int:
     themes.apply()
     app.settings.add_listener(lambda key, value: themes.set_mode(value) if key == "general.theme" else None)
 
-    lock = QLockFile(str(app.paths.data_dir / "screenpilot.lock"))
-    lock.setStaleLockTime(0)
-    if not lock.tryLock(100):
-        QMessageBox.information(None, "ScreenPilot", app.translator.t("app.already_running"))
-        app.shutdown()
-        return 1
-
-    autostart = Autostart()
-    try:
-        autostart.sync(bool(app.settings.get("general.start_with_windows")))
-    except OSError:
-        log.exception("Could not update the autostart entry")
-
-    def on_autostart(key: str, value) -> None:
-        if key == "general.start_with_windows":
-            try:
-                autostart.set_enabled(bool(value))
-            except OSError:
-                log.exception("Could not update the autostart entry")
-
-    app.settings.add_listener(on_autostart)
+    from screenpilot.instance import InstanceServer
+    from screenpilot.platform import devpilot
 
     controller = AppController(app)
+    server = InstanceServer(app.paths.data_dir, controller.accept_remote)
+    if not server.start():  # another instance won the race while we were starting
+        send(app.paths.data_dir, command)
+        controller.shutdown(persist=False)
+        return 0
+    qt_app.aboutToQuit.connect(server.stop)
+
+    if devpilot.owns("autostart"):
+        log.info("Started by DevPilot: it owns 'start with Windows'; the Run entry is left alone")
+    else:
+        autostart = Autostart()
+        try:
+            autostart.sync(bool(app.settings.get("general.start_with_windows")))
+        except OSError:
+            log.exception("Could not update the autostart entry")
+
+        def on_autostart(key: str, value) -> None:
+            if key == "general.start_with_windows":
+                try:
+                    autostart.set_enabled(bool(value))
+                except OSError:
+                    log.exception("Could not update the autostart entry")
+
+        app.settings.add_listener(on_autostart)
+
     tray = TrayIcon(controller)
-    tray.show()
+    controller.tray = tray
+    if devpilot.owns("tray"):
+        log.info("Started by DevPilot: no tray icon (DevPilot's hub shows ScreenPilot's options)")
+    else:
+        tray.show()
 
     from screenpilot.ui.edge_bar import EdgeBar
 
@@ -119,9 +162,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         edge_bar = EdgeBar(controller)
         controller.edge_bar = edge_bar
         edge_bar.start()
-    qt_app.aboutToQuit.connect(lambda: lock.unlock())
 
-    if autostarted:
+    initial = command if command.get("cmd") == "action" and command.get("action") != "app.show_hub" else None
+    if initial is not None:
+        QTimer.singleShot(400, lambda: controller.run_remote(initial))
+    elif autostarted:
         log.info("Started with Windows: staying in the tray")
     elif not app.settings.get("general.first_run_completed"):
         controller.show_wizard()

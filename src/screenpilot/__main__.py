@@ -9,6 +9,8 @@ smoke test of the headless core on any Windows machine::
     python -m screenpilot --lang ro hotkeys
     python -m screenpilot record --rect 0,0,1280,720 --seconds 10 --out C:/Temp/demo.mp4
     python -m screenpilot record-info
+    python -m screenpilot action capture.region      # in the running app (starts it if needed)
+    python -m screenpilot action --list
     python -m screenpilot video-info C:/Temp/demo.mp4
     python -m screenpilot video-edit C:/Temp/demo.mp4 --trim 1.5,12 --step 2,5,400,300 --text 2,5,430,280,"Click here"
 """
@@ -64,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--no-effects", action="store_true", help="no cursor highlight / click ripples")
     sub.add_parser("record-info", help="show ffmpeg, encoder and audio device detection")
 
+    act = sub.add_parser("action", help="run an action in the desktop app (starts it when it is not running)")
+    act.add_argument("action", nargs="?", help="e.g. capture.region, capture.edit, record.video, app.open_history")
+    act.add_argument("--seconds", type=float, help="capture.delayed: delay in seconds")
+    act.add_argument("--path", help="app.edit_video: the video to open")
+    act.add_argument("--list", action="store_true", help="list the action ids")
+    act.add_argument("--no-start", action="store_true", help="do nothing when the app is not running")
+
     vinfo = sub.add_parser("video-info", help="size, length and audio of a video or GIF")
     vinfo.add_argument("file", type=Path)
     vedit = sub.add_parser("video-edit", help="trim a video and add timed annotations (new file, the source is kept)")
@@ -79,6 +88,43 @@ def build_parser() -> argparse.ArgumentParser:
     vedit.add_argument("--save-project", type=Path, help="also write the project as JSON")
     vedit.add_argument("--out", type=Path, help="output file (default: <name>_edited next to the source)")
     return parser
+
+
+def remote_action_ids() -> list[str]:
+    """Actions the desktop app accepts from ``action`` (no Qt needed to list them)."""
+    from screenpilot.hotkeys.manager import DEFAULT_BINDINGS
+
+    return sorted(set(DEFAULT_BINDINGS) | {"app.show_hub", "app.settings", "app.quit"})
+
+
+def _action(args) -> int:
+    from screenpilot.core.paths import resolve_paths
+    from screenpilot.i18n import Translator
+    from screenpilot.instance import action_message, send
+
+    t = Translator(args.lang or "en").t
+    ids = remote_action_ids()
+    if args.list or not args.action:
+        for action_id in ids:
+            print(f"  {action_id:<22} {t('action.' + action_id)}")
+        return 0
+    if args.action not in ids:
+        print(t("cli.action.unknown", action=args.action), file=sys.stderr)
+        return 2
+    message = action_message(args.action, seconds=args.seconds, path=args.path)
+    reply = send(resolve_paths().ensure().data_dir, message)
+    if reply is not None:
+        if not reply.get("ok"):
+            print(t("cli.action.failed", reason=reply.get("error", "?")), file=sys.stderr)
+            return 1
+        return 0
+    if args.no_start:
+        print(t("cli.action.not_running"), file=sys.stderr)
+        return 1
+    from screenpilot.ui.main import main as gui_main
+
+    extra = (["--seconds", str(args.seconds)] if args.seconds else []) + (["--path", args.path] if args.path else [])
+    return gui_main([sys.argv[0], "--action", args.action, *extra])
 
 
 def _numbers(text: str, count: int) -> list[float]:
@@ -245,6 +291,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         from screenpilot.ui.main import main as gui_main
 
         return gui_main([sys.argv[0]] + (["--autostart"] if args.autostart else []))
+    if args.command == "action":
+        return _action(args)
 
     from screenpilot.app import create_app
 
@@ -319,7 +367,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(t("cli.capture.failed", reason=t(exc.message_key)) + f" ({exc})", file=sys.stderr)
         return 1
     finally:
-        app.shutdown()
+        # Only "setup" changes settings on purpose; other commands must not overwrite
+        # what the desktop app (maybe running right now) saved meanwhile.
+        app.shutdown(persist=args.command == "setup")
 
 
 if __name__ == "__main__":

@@ -647,5 +647,12 @@
   "cli.video.progress": "{percent} %",
   "cli.video.saved": "Saved {path} ({duration} s, {count} annotations)",
   "cli.yes": "yes",
-  "cli.no": "no"
+  "cli.no": "no",
+  "action.app.show_hub": "Open ScreenPilot (Capture Hub)",
+  "action.app.settings": "Settings",
+  "action.app.quit": "Quit ScreenPilot",
+  "cli.action.unknown": "Unknown action: {action}. See: python -m screenpilot action --list",
+  "cli.action.failed": "ScreenPilot did not run the action: {reason}",
+  "cli.action.not_running": "ScreenPilot is not running.",
+  "settings.start_with_windows.devpilot": "DevPilot started ScreenPilot and manages starting with Windows (DevPilot › Startup & conflicts)."
 }

@@ -1,0 +1,162 @@
+{
+  "name": "ScreenPilot",
+  "description": "Screenshots, recordings and documentation",
+  "glyph": "E722",
+  "pythonModule": "screenpilot",
+  "arguments": "gui",
+  "autoStartArguments": "gui --autostart",
+  "processMatch": "-m screenpilot",
+  "actions": [
+    {
+      "label": "Region",
+      "glyph": "E7F4",
+      "kind": "Arguments",
+      "arguments": "action capture.region",
+      "section": "Capture",
+      "featured": true
+    },
+    {
+      "label": "Capture + edit",
+      "glyph": "E70F",
+      "kind": "Arguments",
+      "arguments": "action capture.edit",
+      "section": "Capture",
+      "featured": true
+    },
+    {
+      "label": "Window",
+      "glyph": "E8A7",
+      "kind": "Arguments",
+      "arguments": "action capture.window",
+      "section": "Capture",
+      "featured": true
+    },
+    {
+      "label": "Record video",
+      "glyph": "E7C8",
+      "kind": "Arguments",
+      "arguments": "action record.video",
+      "section": "Capture",
+      "featured": true
+    },
+    {
+      "label": "Screen",
+      "glyph": "E7F4",
+      "kind": "Arguments",
+      "arguments": "action capture.fullscreen",
+      "section": "Capture"
+    },
+    {
+      "label": "All screens",
+      "glyph": "F0E2",
+      "kind": "Arguments",
+      "arguments": "action capture.all_monitors",
+      "section": "Capture"
+    },
+    {
+      "label": "Scrolling capture",
+      "glyph": "E70D",
+      "kind": "Arguments",
+      "arguments": "action capture.scrolling",
+      "section": "Capture"
+    },
+    {
+      "label": "Number steps",
+      "glyph": "E8FD",
+      "kind": "Arguments",
+      "arguments": "action capture.steps",
+      "section": "Capture"
+    },
+    {
+      "label": "Screen in 3 s",
+      "glyph": "E823",
+      "kind": "Arguments",
+      "arguments": "action capture.delayed --seconds 3",
+      "section": "Delayed"
+    },
+    {
+      "label": "Screen in 5 s",
+      "glyph": "E823",
+      "kind": "Arguments",
+      "arguments": "action capture.delayed --seconds 5",
+      "section": "Delayed"
+    },
+    {
+      "label": "Screen in 10 s",
+      "glyph": "E823",
+      "kind": "Arguments",
+      "arguments": "action capture.delayed --seconds 10",
+      "section": "Delayed"
+    },
+    {
+      "label": "Record GIF",
+      "glyph": "E714",
+      "kind": "Arguments",
+      "arguments": "action record.gif",
+      "section": "Recording"
+    },
+    {
+      "label": "Edit a video…",
+      "glyph": "E714",
+      "kind": "Arguments",
+      "arguments": "action app.edit_video",
+      "section": "Recording"
+    },
+    {
+      "label": "Text from screen (OCR)",
+      "glyph": "E8E5",
+      "kind": "Arguments",
+      "arguments": "action ocr.region",
+      "section": "Tools"
+    },
+    {
+      "label": "Record a procedure",
+      "glyph": "E8A5",
+      "kind": "Arguments",
+      "arguments": "action procedure.toggle",
+      "section": "Tools"
+    },
+    {
+      "label": "Colour picker",
+      "glyph": "E790",
+      "kind": "Arguments",
+      "arguments": "action tools.color",
+      "section": "Tools"
+    },
+    {
+      "label": "Open editor",
+      "glyph": "E70F",
+      "kind": "Arguments",
+      "arguments": "action app.open_editor",
+      "section": "Tools"
+    },
+    {
+      "label": "History",
+      "glyph": "E81C",
+      "kind": "Arguments",
+      "arguments": "action app.open_history",
+      "section": "Files"
+    },
+    {
+      "label": "Captures folder",
+      "glyph": "E838",
+      "kind": "Folder",
+      "value": "{Pictures}\\ScreenPilot",
+      "section": "Files"
+    },
+    {
+      "label": "Settings",
+      "glyph": "E713",
+      "kind": "Arguments",
+      "arguments": "action app.settings",
+      "section": "Files"
+    },
+    {
+      "label": "Open ScreenPilot",
+      "glyph": "E80F",
+      "kind": "Arguments",
+      "arguments": "action app.show_hub",
+      "section": "Files"
+    }
+  ]
+}

@@ -199,13 +199,25 @@ class TrayIcon(QSystemTrayIcon):
 
     def _on_notify(self, title: str, body: str, is_error: bool) -> None:
         self._message_action = None
+        if not self.isVisible():  # DevPilot owns the tray: balloons need a visible icon
+            self._toast(title, body, is_error, None)
+            return
         icon = QSystemTrayIcon.MessageIcon.Warning if is_error else QSystemTrayIcon.MessageIcon.Information
         self.showMessage(title, body, icon, NOTIFY_MS)
 
     def _on_notify_action(self, title: str, body: str, is_error: bool, action) -> None:
         """A message that does something when clicked (e.g. open the right settings page)."""
+        if not self.isVisible():
+            self._toast(title, body, is_error, action)
+            return
         self._on_notify(title, body, is_error)
         self._message_action = action
+
+    def _toast(self, title: str, body: str, is_error: bool, action) -> None:
+        from screenpilot.ui.toast import Toast
+
+        self.last_toast = Toast(title, body, error=is_error, action=action)
+        self.last_toast.show_in_corner()
 
     def _on_message_clicked(self) -> None:
         action, self._message_action = self._message_action, None

@@ -1054,6 +1054,36 @@ class RecordingUiTests(UiTestCase):
         self.assertEqual(len(editors), 1)
         editors[0].force_close()
 
+    def test_forwarded_actions_from_devpilot_or_cli(self):
+        from screenpilot.instance import InstanceServer, action_message, send
+
+        self.assertFalse(self.controller.accept_remote(action_message("nope"))["ok"])
+        server = InstanceServer(self.app.paths.data_dir, self.controller.accept_remote)
+        self.assertTrue(server.start())
+        try:
+            self.assertEqual(send(self.app.paths.data_dir, action_message("app.show_hub")), {"ok": True})
+            self.assertTrue(wait_until(lambda: "hub" in self.controller._windows))
+            self.assertEqual(send(self.app.paths.data_dir, action_message("capture.region")), {"ok": True})
+            self.assertTrue(wait_until(lambda: self.controller.selector.active, timeout=5))
+            self.controller.selector.cancel()
+            self.assertEqual(send(self.app.paths.data_dir, action_message("app.settings", page="recording")), {"ok": True})
+            self.assertTrue(wait_until(lambda: "settings" in self.controller._windows))
+        finally:
+            server.stop()
+
+    def test_notifications_without_a_tray_icon_use_a_toast(self):
+        from screenpilot.ui.tray import TrayIcon
+
+        tray = TrayIcon(self.controller)  # never shown: DevPilot owns the tray
+        clicked = []
+        self.controller.notify_action.emit("Title", "Body", False, lambda: clicked.append(1))
+        QApplication.processEvents()
+        toast = tray.last_toast
+        self.assertTrue(toast.isVisible())
+        shot(toast, "48_toast")
+        QTest.mouseClick(toast, Qt.MouseButton.LeftButton)
+        self.assertEqual(clicked, [1])
+
     def test_policy_blocks_recording_everywhere(self):
         from screenpilot.core.policy import Policy
 
