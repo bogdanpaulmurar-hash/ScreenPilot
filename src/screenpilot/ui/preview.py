@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 
 from screenpilot.capture.image import CaptureResult
 from screenpilot.i18n import Translator
-from screenpilot.ui.qt_helpers import Retranslator, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, qimage_from_captured, sharp_thumbnail
 from screenpilot.ui.widgets import IconBadge, IconButton, label, theme
 
 log = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class DragThumbnail(QLabel):
         self._file_provider = file_provider
         self._press: QPoint | None = None
         self._full = pixmap
-        self.setPixmap(pixmap.scaled(THUMB, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.setPixmap(sharp_thumbnail(pixmap, THUMB, self.devicePixelRatioF()))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedSize(THUMB)
         self.setCursor(Qt.CursorShape.OpenHandCursor)

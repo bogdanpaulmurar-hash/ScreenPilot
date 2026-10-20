@@ -32,7 +32,7 @@ from screenpilot.capture.geometry import Point, Rect
 from screenpilot.capture.image import CaptureResult, CapturedImage
 from screenpilot.editor import PALETTE, StepDocument, render_steps
 from screenpilot.i18n import Translator
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, qimage_from_captured
 from screenpilot.ui.widgets import Chip, IconButton, label, theme
 
 log = logging.getLogger(__name__)
@@ -70,10 +70,7 @@ class StepCanvas(QWidget):
 
     # -- mapping --------------------------------------------------------------
     def _target(self) -> QRectF:
-        w, h = self.image.width, self.image.height
-        scale = min(self.width() / w, self.height() / h, 1.0)
-        tw, th = w * scale, h * scale
-        return QRectF((self.width() - tw) / 2, (self.height() - th) / 2, tw, th)
+        return fit_target(self, self.image.width, self.image.height)
 
     def to_image(self, pos: QPointF) -> Point:
         t = self._target()

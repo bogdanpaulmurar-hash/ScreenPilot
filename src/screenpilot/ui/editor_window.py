@@ -38,7 +38,7 @@ from screenpilot.capture.image import CapturedImage, CaptureResult
 from screenpilot.editor.document import COLORS, EditorDocument, Shape, render
 from screenpilot.i18n import Translator
 from screenpilot.ui import icons
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, qimage_from_captured
 from screenpilot.ui.widgets import Chip, label, on_theme_changed, theme
 
 log = logging.getLogger(__name__)
@@ -117,10 +117,7 @@ class EditorCanvas(QWidget):
 
     # -- mapping --------------------------------------------------------------
     def target(self) -> QRectF:
-        w, h = self.image.width, self.image.height
-        scale = min((self.width() - 24) / w, (self.height() - 24) / h, 1.0)
-        tw, th = w * scale, h * scale
-        return QRectF((self.width() - tw) / 2, (self.height() - th) / 2, tw, th)
+        return fit_target(self, self.image.width, self.image.height, margin=12)
 
     @property
     def scale(self) -> float:

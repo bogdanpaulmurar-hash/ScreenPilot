@@ -117,3 +117,22 @@ def ui_font(point_size: float, bold: bool = False) -> QFont:
     font.setPointSizeF(point_size)
     font.setBold(bold)
     return font
+
+
+def fit_target(widget, image_w: int, image_h: int, margin: float = 0.0) -> QRectF:
+    """Target rectangle for drawing a capture 1:1 on high-DPI screens (see ``fit_view``)."""
+    from screenpilot.capture.geometry import fit_view
+
+    dpr = widget.devicePixelRatioF() if hasattr(widget, "devicePixelRatioF") else 1.0
+    return QRectF(*fit_view(image_w, image_h, widget.width(), widget.height(), dpr=dpr, margin=margin))
+
+
+def sharp_thumbnail(pixmap: QPixmap, size, dpr: float) -> QPixmap:
+    """Scaled pixmap rendered at physical resolution, so thumbnails are crisp at 125 % / 150 %."""
+    from PySide6.QtCore import QSize
+
+    dpr = dpr if dpr and dpr > 0 else 1.0
+    physical = QSize(max(1, round(size.width() * dpr)), max(1, round(size.height() * dpr)))
+    thumb = pixmap.scaled(physical, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    thumb.setDevicePixelRatio(dpr)
+    return thumb

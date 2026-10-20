@@ -152,12 +152,14 @@ class FfmpegParsingTests(unittest.TestCase):
         joined = " ".join(args)
         self.assertLess(joined.index("audio=Mic"), joined.index("-i -"))
         self.assertIn("amix=inputs=2", joined)
-        self.assertIn("-map 2:v", joined)
+        self.assertIn("[2:v]scale=out_color_matrix=bt709", joined)
+        self.assertIn("-colorspace bt709", joined)
         self.assertIn("-shortest", args)
         self.assertIn("-0.120", args)
         silent = record_command(Path("ffmpeg"), width=640, height=360, fps=30, output=Path("o.mp4"), encoder="h264_mf", quality=23)
         self.assertNotIn("-shortest", silent)
         self.assertIn("-map", silent)
+        self.assertIn("[0:v]scale=out_color_matrix=bt709", " ".join(silent))  # colour conversion also without audio
         self.assertEqual((even(641), even(640), even(1)), (640, 640, 2))
 
     def test_encoder_choice_skips_listed_but_broken_hardware(self):

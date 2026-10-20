@@ -25,7 +25,7 @@ from screenpilot.core.errors import ConfigurationError
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DEFAULTS: dict[str, Any] = {
     "schema_version": SCHEMA_VERSION,
@@ -62,7 +62,7 @@ DEFAULTS: dict[str, Any] = {
         "fps": 30,
         "gif_fps": 15,
         "gif_max_width": 1920,
-        "quality": 23,
+        "quality": 20,  # CRF-like; 20 keeps small UI text readable (0.5.2, was 23)
         "encoder": "auto",
         "microphone": "",
         "system_audio": "",
@@ -132,8 +132,16 @@ def _v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
+    """0.5.2: the "Balanced" video quality moves from 23 to 20 (sharper text)."""
+    recording = data.get("recording")
+    if isinstance(recording, dict) and recording.get("quality") == 23:
+        recording["quality"] = 20
+    return data
+
+
 # from_version -> function producing data for from_version + 1
-MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2}
+MIGRATIONS: dict[int, Migration] = {1: _v1_to_v2, 2: _v2_to_v3}
 
 
 def _get(data: dict[str, Any], dotted: str) -> Any:

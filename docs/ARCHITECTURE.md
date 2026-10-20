@@ -73,6 +73,8 @@ Status: M1 (desktop shell) — October 2026.
 | ADR-13 | Frame detection has a time budget (25 ms) and visits side combinations nearest-first | Grids (Excel, Sheets) made the exhaustive search take seconds per mouse move and froze the selector |
 | ADR-14 | Esc outside our windows = polling one key (`GetAsyncKeyState`) only while a flow runs | Same no-hook rule as hotkeys; works when another app keeps the keyboard focus |
 | ADR-15 | "FFmpeg not found" is never cached; discovery also checks winget/Chocolatey/Scoop folders and the registry `Path` | An FFmpeg installed while the app runs (stale process `PATH`) is used at the next recording without a restart |
+| ADR-16 | Captures are drawn at most 1 image px per *physical* screen px (`capture.geometry.fit_view`, `ui.qt_helpers.fit_target` / `sharp_thumbnail`) | Capping at 1 *logical* px upscaled every capture by 125–150 % on scaled screens, which made text look soft in the editor, Number steps, OCR and previews |
+| ADR-17 | MP4: explicit RGB→YUV conversion with BT.709, accurate rounding and colour tags (`SCREEN_COLOR_FILTER`, `COLOR_TAGS`) in one `-filter_complex` with the audio mix | ffmpeg's implicit conversion uses BT.601 untagged, so players shift colours and coloured text bleeds more |
 
 ## Events (public)
 

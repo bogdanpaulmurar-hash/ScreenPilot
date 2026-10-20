@@ -673,7 +673,7 @@ class SettingsDialog(QDialog):
 
     # -- diagnostics ------------------------------------------------------------
     # -- recording ------------------------------------------------------------
-    QUALITY_PRESETS = (("high", 18), ("balanced", 23), ("small", 28))
+    QUALITY_PRESETS = (("high", 17), ("balanced", 20), ("small", 26))
 
     def _combo(self, key: str, items: list[tuple[str, object]], *, tr_prefix: str | None = None) -> QComboBox:
         combo = QComboBox()

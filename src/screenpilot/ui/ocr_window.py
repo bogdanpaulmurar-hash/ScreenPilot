@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from screenpilot.capture.image import CaptureResult
 from screenpilot.i18n import Translator
 from screenpilot.ocr import OcrResult, to_markdown
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, qimage_from_captured
 from screenpilot.ui.widgets import Chip, label, theme
 
 log = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ class WordOverlay(QWidget):
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         p.fillRect(self.rect(), QColor(t.surface_alt))
         w, h = self.pixmap.width(), self.pixmap.height()
-        scale = min((self.width() - 16) / w, (self.height() - 16) / h, 1.0)
-        target = QRectF((self.width() - w * scale) / 2, (self.height() - h * scale) / 2, w * scale, h * scale)
+        target = fit_target(self, w, h, margin=8)
+        scale = target.width() / w
         p.drawPixmap(target, self.pixmap, QRectF(self.pixmap.rect()))
         if self.ocr is not None and (self.show_boxes or self.query):
             q = self.query.strip().lower()

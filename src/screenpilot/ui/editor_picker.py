@@ -19,7 +19,7 @@ from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QPixmap, QShortc
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QPushButton, QToolButton, QVBoxLayout, QWidget
 
 from screenpilot.capture.image import CaptureResult
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, qimage_from_captured, sharp_thumbnail
 from screenpilot.ui.widgets import label
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -66,7 +66,7 @@ class EditorPicker(QWidget):
         self.last_button.setMinimumWidth(LAST_THUMB.width() + 24)
         if self.last is not None:
             pixmap = QPixmap.fromImage(qimage_from_captured(self.last.image))
-            self.last_button.setIcon(QIcon(pixmap.scaled(LAST_THUMB, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
+            self.last_button.setIcon(QIcon(sharp_thumbnail(pixmap, LAST_THUMB, self.devicePixelRatioF())))
             size = {"width": self.last.image.width, "height": self.last.image.height}
             rt.bind(self.last_button.setText, "editor.pick.last", **size)
             self.last_button.clicked.connect(lambda: self.choose(self.last))

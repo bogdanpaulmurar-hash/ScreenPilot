@@ -159,3 +159,25 @@ class VirtualDesktop:
     def is_visible(self, rect: Rect) -> bool:
         """True if any part of ``rect`` is on a real monitor (not just in a gap)."""
         return any(not rect.intersect(m.bounds).is_empty for m in self.monitors)
+
+
+def fit_view(
+    image_w: int, image_h: int, view_w: float, view_h: float, *, dpr: float = 1.0, margin: float = 0.0
+) -> tuple[float, float, float, float]:
+    """Where to draw an image of physical pixels inside a widget of logical pixels.
+
+    Returns ``(left, top, width, height)`` in logical pixels. The image is never
+    shown larger than one image pixel per *physical* screen pixel (``1 / dpr``
+    logical px): at 125 % / 150 % Windows scaling a 1:1 cap in logical pixels
+    would upscale the capture and make text look soft. The origin is snapped to
+    the physical pixel grid so a 1:1 image is drawn without resampling.
+    """
+    dpr = dpr if dpr and dpr > 0 else 1.0
+    if image_w <= 0 or image_h <= 0:
+        return 0.0, 0.0, 0.0, 0.0
+    avail_w, avail_h = max(1.0, view_w - 2 * margin), max(1.0, view_h - 2 * margin)
+    scale = min(avail_w / image_w, avail_h / image_h, 1.0 / dpr)
+    w, h = image_w * scale, image_h * scale
+    left = round((view_w - w) / 2 * dpr) / dpr
+    top = round((view_h - h) / 2 * dpr) / dpr
+    return left, top, w, h

@@ -74,10 +74,17 @@ class SettingsTests(unittest.TestCase):
         s = Settings(self.path).load()
         self.assertEqual(s.get("recording.gif_max_width"), 1920)  # old default -> new default
         self.assertEqual(s.get("recording.gif_fps"), 8)  # the user's own choice is kept
-        self.assertEqual(s.get("schema_version"), 2)
+        self.assertEqual(s.get("schema_version"), 3)
         self.assertTrue(s.get("selector.action_bar"))
         self.assertEqual(s.get("capture.region_action"), "workflow")
         self.assertEqual(s.get("editor.open_mode"), "ask")
+
+    def test_v2_balanced_video_quality_moves_to_20(self):
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text(json.dumps({"schema_version": 2, "recording": {"quality": 23}}), encoding="utf-8")
+        self.assertEqual(Settings(self.path).load().get("recording.quality"), 20)
+        self.path.write_text(json.dumps({"schema_version": 2, "recording": {"quality": 28}}), encoding="utf-8")
+        self.assertEqual(Settings(self.path).load().get("recording.quality"), 28)  # the user's own choice is kept
 
 
 if __name__ == "__main__":

@@ -273,6 +273,13 @@ def even(value: int) -> int:
     return max(2, value - (value % 2))
 
 
+# Screen content is RGB; H.264 stores YUV 4:2:0. Converting with the BT.709
+# matrix (what players assume for HD video) and accurate rounding keeps colours
+# true and coloured text crisper than ffmpeg's implicit BT.601 conversion.
+SCREEN_COLOR_FILTER = "scale=out_color_matrix=bt709:out_range=tv:flags=lanczos+accurate_rnd+full_chroma_int"
+COLOR_TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
+
+
 def encoder_args(encoder: str, quality: int, fps: int, width: int, height: int) -> list[str]:
     bitrate = max(500_000, int(width * height * fps * 0.12 * (23 / max(quality, 1))))
     common = ["-pix_fmt", "yuv420p", "-g", str(fps * 2)]
@@ -312,16 +319,21 @@ def record_command(
             args += ["-itsoffset", f"{audio_offset_ms / 1000:.3f}"]
         args += ["-f", "dshow", "-audio_buffer_size", "50", "-i", f"audio={device}"]
     args += [
+        "-thread_queue_size", "512",  # frames are not blocked while audio devices start
         "-f", "rawvideo", "-pix_fmt", "bgra", "-s", f"{width}x{height}",
         "-framerate", str(fps), "-i", "-",
     ]
     video_index = len(audio)
-    args += ["-map", f"{video_index}:v"]
+    graph = [f"[{video_index}:v]{SCREEN_COLOR_FILTER}[v]"]
     if len(audio) == 2:
-        args += ["-filter_complex", "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0[a]", "-map", "[a]"]
+        graph.append("[0:a][1:a]amix=inputs=2:duration=longest:normalize=0[a]")
+    args += ["-filter_complex", ";".join(graph), "-map", "[v]"]
+    if len(audio) == 2:
+        args += ["-map", "[a]"]
     elif len(audio) == 1:
         args += ["-map", "0:a"]
     args += encoder_args(encoder, quality, fps, width, height)
+    args += COLOR_TAGS
     if audio:
         args += ["-c:a", "aac", "-b:a", "160k", "-shortest"]
     args += ["-movflags", "+faststart", str(output)]
@@ -374,7 +386,7 @@ class FfmpegSink:
         width: int,
         height: int,
         fps: int,
-        quality: int = 23,
+        quality: int = 20,
         encoder: str = "libx264",
         microphone: str = "",
         system_audio: str = "",

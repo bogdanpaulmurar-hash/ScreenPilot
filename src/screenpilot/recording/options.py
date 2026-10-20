@@ -23,7 +23,7 @@ class RecordingOptions:
     fps: int = 30
     gif_fps: int = 15
     gif_max_width: int = 1920
-    quality: int = 23
+    quality: int = 20
     encoder: str = "auto"
     microphone: str = ""  # DirectShow device name, "" = no microphone
     system_audio: str = ""  # DirectShow loopback device (e.g. "Stereo Mix"), "" = none
