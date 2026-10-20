@@ -639,7 +639,7 @@ class ControllerTests(UiTestCase):
         self.controller.trigger("capture.window")
         self.assertTrue(wait_until(lambda: self.app.history.entries()))
         self.controller.trigger("capture.fullscreen")
-        self.assertTrue(wait_until(lambda: len(self.app.history.entries()) == 2))
+        self.assertTrue(wait_until(lambda: len(self.app.history.entries()) == 2 and len(self.captured) == 2))
         picker = self.controller.edit_last_capture()
         QTest.qWaitForWindowExposed(picker)
         shot(picker, "51_editor_picker")
