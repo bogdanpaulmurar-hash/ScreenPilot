@@ -159,13 +159,9 @@ class RegionSelectorTests(UiTestCase):
         self.assertEqual(self.app.history.entries(), [])
 
     def test_click_on_window_snaps(self):
-        from unittest import mock
-
-        # Frame detection has a 25 ms budget per mouse move; a slow CI runner can stop it
-        # early and propose another frame. Give the test all the time it needs.
-        patcher = mock.patch("screenpilot.capture.detect.SEARCH_BUDGET_S", 5.0)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # Window snapping only: inner-frame detection runs on a background thread (~200 ms on CI),
+        # so whether it had finished before the click made this test flaky. It has its own tests.
+        self.controller._frame_provider = lambda frozen: (lambda point, window: [])
         overlay = self.open_selector()
         b = self.window.bounds
         inside = QPoint(b.x - self.screen_rect.x + b.width // 2, b.y - self.screen_rect.y + 60)

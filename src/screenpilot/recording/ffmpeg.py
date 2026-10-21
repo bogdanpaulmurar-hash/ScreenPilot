@@ -392,6 +392,18 @@ def convert_to_gif(info: FfmpegInfo, source: Path, output: Path, *, fps: int = 1
     return output
 
 
+def _replace_retrying(source: Path, target: Path, attempts: int = 15) -> None:
+    """``os.replace`` that waits for Windows to release a file (a just-killed process, the antivirus)."""
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2)
+
+
 # -- sink -----------------------------------------------------------------------
 class FfmpegSink:
     """Constant-frame-rate MP4 writer fed with BGRA frames.
@@ -602,7 +614,7 @@ class FfmpegSink:
             return None
         try:
             if len(segments) == 1:
-                os.replace(segments[0], self.output)
+                _replace_retrying(segments[0], self.output)
                 return self.output
             list_file = self.output.with_suffix(".segments.txt")
             list_file.write_text("".join(f"file '{s.as_posix()}'\n" for s in segments), encoding="utf-8")
@@ -618,7 +630,7 @@ class FfmpegSink:
         for i, s in enumerate(segments, start=1):
             target = self.output.with_name(f"{self.output.stem}_part{i}.mp4")
             try:
-                os.replace(s, target)
+                _replace_retrying(s, target)
                 kept.append(target)
             except OSError:
                 pass
