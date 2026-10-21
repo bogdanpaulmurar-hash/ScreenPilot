@@ -521,6 +521,7 @@ class RecordingController(QObject):
             self.ink = InkOverlay(
                 self._area, recorder.ink, self.app.translator,
                 on_escape=self.ctrl.escape_pressed, exclude=exclude_from_capture,
+                blocked=lambda: self.bar.frameGeometry() if self.bar is not None and self.bar.isVisible() else None,
             )
         self.bar = RecordingBar(self.app.translator, ink=ink_allowed)
         self.bar.pause_clicked.connect(self.toggle_pause)
@@ -570,7 +571,19 @@ class RecordingController(QObject):
         on = self.ink.toggle_drawing()
         if self.bar is not None:
             self.bar.set_drawing(on, self.ink.tool)
+            self._keep_bar_on_top()
         return on
+
+    def _keep_bar_on_top(self) -> None:
+        """The drawing surface is raised when the pen goes on; over a full-screen recording the
+        control bar sits inside it and would end up underneath (clicks on its tools then placed
+        steps). Raise the bar again, now and once the foreground change has settled."""
+        bar = self.bar
+        if bar is None:
+            return
+        bar.raise_()
+        for delay in (0, 150, 400):
+            QTimer.singleShot(delay, lambda b=bar: b.raise_() if self.bar is b else None)
 
     def set_ink_tool(self, tool: str) -> None:
         if self.ink is not None:
@@ -633,6 +646,8 @@ class RecordingController(QObject):
         paused = recorder.state == State.PAUSED
         if self.bar is not None and recorder.state != State.FINISHING:
             self.bar.set_state(recorder.elapsed, paused=paused, zoom=recorder.effects.zoom_on)
+            if self.ink is not None and self.ink.drawing:
+                self.bar.raise_()  # stays above the drawing surface
         if self.frame is not None:
             self.frame.set_state(paused=paused)
 
@@ -665,12 +680,15 @@ class RecordingController(QObject):
         session limits). Within the first seconds, restart once with the next one."""
         if failed is None or getattr(failed, "_retried", False) or failed.options.is_gif:
             return False
-        if error.message_key != "recording.error.encoder_failed" or failed.encoder in ("", "libx264"):
+        if error.message_key != "recording.error.encoder_failed" or failed.encoder in ("", "windows-h264"):
             return False
+        windows_ok = bool(self.app.recording.windows_encoder()[0])
+        if failed.encoder == "libx264" and not windows_ok:
+            return False  # nothing else left to try
         if failed._frames > failed.options.frame_rate * 5:
             return False  # too late: restarting would silently drop what was recorded
         log.warning("Encoder %s failed at start; retrying with another encoder", failed.encoder)
-        self.ctrl.notify.emit(self.t("app.name"), self.t("recording.retrying"), False)
+        self.ctrl.notify.emit(self.t("app.name"), self.t("recording.retrying.windows" if windows_ok else "recording.retrying"), False)
         rect, fmt = failed.rect, failed.options.format
         countdown = failed.options.countdown
         service = self.app.recording

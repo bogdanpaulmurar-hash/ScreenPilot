@@ -7,6 +7,7 @@ from typing import Any
 
 FORMATS = ("mp4", "gif")
 ENCODER_MODES = ("auto", "hardware", "software")
+ENGINES = ("auto", "windows", "ffmpeg")  # who writes the MP4: Windows Media Foundation or FFmpeg
 
 FPS_RANGE = (5, 60)
 GIF_FPS_RANGE = (5, 30)
@@ -25,6 +26,7 @@ class RecordingOptions:
     gif_max_width: int = 1920
     quality: int = 20
     encoder: str = "auto"
+    engine: str = "auto"  # auto = Windows' built-in encoder for video only, FFmpeg when sound is recorded
     microphone: str = ""  # DirectShow device name, "" = no microphone
     system_audio: str = ""  # DirectShow loopback device (e.g. "Stereo Mix"), "" = none
     audio_offset_ms: int = 0
@@ -44,6 +46,8 @@ class RecordingOptions:
             object.__setattr__(self, "format", "mp4")
         if self.encoder not in ENCODER_MODES:
             object.__setattr__(self, "encoder", "auto")
+        if self.engine not in ENGINES:
+            object.__setattr__(self, "engine", "auto")
         object.__setattr__(self, "fps", _clamp(self.fps, FPS_RANGE))
         object.__setattr__(self, "gif_fps", _clamp(self.gif_fps, GIF_FPS_RANGE))
         object.__setattr__(self, "quality", _clamp(self.quality, QUALITY_RANGE))

@@ -51,11 +51,13 @@ class InkOverlay(QWidget):
         *,
         on_escape: Callable[[], None] | None = None,
         exclude: Callable[[QWidget], bool] | None = None,
+        blocked: Callable[[], object] | None = None,
     ) -> None:
         super().__init__(None)
         self.t = translator.t
         self.layer = layer
         self.on_escape = on_escape
+        self.blocked = blocked  # global rect of the control bar: clicks there are never ink
         self.tool = "step"
         self.drawing = False
         self._start: Point | None = None
@@ -149,8 +151,12 @@ class InkOverlay(QWidget):
             self.update()
 
     # -- input ------------------------------------------------------------------
+    def _over_bar(self, event: QMouseEvent) -> bool:
+        rect = self.blocked() if self.blocked is not None else None
+        return rect is not None and rect.contains(event.globalPosition().toPoint())
+
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if not self.drawing:
+        if not self.drawing or self._over_bar(event):
             return
         if event.button() == Qt.MouseButton.RightButton:
             self.undo()

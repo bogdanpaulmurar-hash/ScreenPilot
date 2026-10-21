@@ -917,6 +917,7 @@ class RecordingUiTests(UiTestCase):
 
     def test_mp4_without_ffmpeg_falls_back_to_gif(self):
         self.app.recording.ffmpeg = lambda refresh=False: None
+        self.app.recording.windows_encoder = lambda: (False, "test")
         self.assertTrue(self.rec.start(Rect(self.screen_rect.x, self.screen_rect.y, 320, 200), "mp4"))
         self.assertTrue(wait_until(lambda: self.rec.recording))
         self.assertTrue(self.rec.recorder.options.is_gif)

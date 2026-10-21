@@ -457,6 +457,7 @@ class ServiceTests(unittest.TestCase):
                 settings(Path(tmp), ffmpeg_path=str(Path(tmp) / "missing.exe")),
                 default_dir=lambda: Path(tmp),
                 ffmpeg_search_dirs=lambda: [],  # CI machines may have ffmpeg in the package-manager folders
+                windows_encoder=lambda: (False, "test"),
             )
             self.assertIsNone(service.ffmpeg())
             with self.assertRaises(RecordingError) as ctx:
@@ -566,7 +567,7 @@ class RealFfmpegTests(unittest.TestCase):
 
     def test_mp4_recording_with_pause_joins_segments(self):
         with tempfile.TemporaryDirectory() as tmp:
-            s = settings(Path(tmp), fps=15, output_dir=str(Path(tmp) / "rec"))
+            s = settings(Path(tmp), fps=15, output_dir=str(Path(tmp) / "rec"), engine="ffmpeg")
             backend = MovingCursorBackend(Rect(0, 0, 1280, 800))
             service = RecordingService(s, backend=backend, source_factory=lambda: BackendFrameSource(backend))
             recorder = service.start(Rect(200, 100, 480, 270))
@@ -588,6 +589,93 @@ class RealFfmpegTests(unittest.TestCase):
             with Image.open(gif) as image:
                 self.assertEqual(image.size[0], 240)
                 self.assertGreater(image.n_frames, 3)
+
+
+class EngineChoiceTests(unittest.TestCase):
+    def service(self, tmp, *, ffmpeg=True, windows=True, **values):
+        from screenpilot.recording import FfmpegInfo
+
+        service = RecordingService(
+            settings(Path(tmp), **values), default_dir=lambda: Path(tmp), windows_encoder=lambda: (windows, "" if windows else "no")
+        )
+        info = FfmpegInfo(Path(tmp) / "ffmpeg", "7.1", encoders=("libx264",)) if ffmpeg else None
+        service.ffmpeg = lambda refresh=False: info
+        return service
+
+    def test_auto_prefers_windows_for_video_and_ffmpeg_for_sound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = self.service(tmp)
+            self.assertEqual(service.choose_engine(RecordingOptions()), "windows")
+            self.assertEqual(service.choose_engine(RecordingOptions(microphone="Mic")), "ffmpeg")
+            service.ffmpeg_unreliable = True  # FFmpeg was killed during a recording
+            self.assertEqual(service.choose_engine(RecordingOptions(microphone="Mic")), "windows")
+
+    def test_explicit_engine_falls_back_to_the_other(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.service(tmp).choose_engine(RecordingOptions(engine="ffmpeg")), "ffmpeg")
+            self.assertEqual(self.service(tmp, ffmpeg=False).choose_engine(RecordingOptions(engine="ffmpeg")), "windows")
+            self.assertEqual(self.service(tmp, windows=False).choose_engine(RecordingOptions(engine="windows")), "ffmpeg")
+            with self.assertRaises(RecordingError) as ctx:
+                self.service(tmp, ffmpeg=False, windows=False).choose_engine(RecordingOptions())
+            self.assertEqual(ctx.exception.message_key, "recording.error.no_ffmpeg")
+
+    def test_prepare_uses_the_windows_encoder_and_drops_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service = self.service(tmp, ffmpeg=False)
+            prepared = service.prepare(RecordingOptions(microphone="Mic"))
+            self.assertEqual(prepared.encoder, "windows-h264")
+            self.assertFalse(prepared.options.has_audio)
+
+    def test_engine_option_is_validated_and_bitrate_is_sane(self):
+        from screenpilot.recording.mediafoundation import bitrate_for
+
+        self.assertEqual(RecordingOptions(engine="nope").engine, "auto")
+        self.assertEqual(RecordingOptions(engine="windows").engine, "windows")
+        small, big = bitrate_for(320, 200, 15, 20), bitrate_for(1920, 1080, 30, 20)
+        self.assertGreaterEqual(small, 500_000)
+        self.assertLessEqual(big, 50_000_000)
+        self.assertGreater(big, small)
+        self.assertGreater(bitrate_for(1280, 720, 30, 16), bitrate_for(1280, 720, 30, 30))  # lower q = better
+
+    def test_off_windows_the_encoder_reports_why(self):
+        from screenpilot.recording import mediafoundation
+
+        if sys.platform == "win32":
+            self.skipTest("Windows")
+        mediafoundation.reset_availability()
+        ok, reason = mediafoundation.availability()
+        self.assertFalse(ok)
+        self.assertTrue(reason)
+
+
+@unittest.skipUnless(sys.platform == "win32", "Windows only")
+class RealMediaFoundationTests(unittest.TestCase):
+    def test_mp4_recording_with_the_windows_encoder(self):
+        from screenpilot.recording import mediafoundation
+
+        ok, reason = mediafoundation.availability()
+        if not ok:
+            self.skipTest(f"Media Foundation unavailable: {reason}")
+        with tempfile.TemporaryDirectory() as tmp:
+            s = settings(Path(tmp), fps=15, output_dir=str(Path(tmp) / "rec"), engine="windows")
+            backend = MovingCursorBackend(Rect(0, 0, 1280, 800))
+            service = RecordingService(s, backend=backend, source_factory=lambda: BackendFrameSource(backend))
+            recorder = service.start(Rect(200, 100, 480, 270))
+            time.sleep(1.0)
+            recorder.pause()
+            time.sleep(0.4)
+            recorder.resume()
+            time.sleep(1.0)
+            result = recorder.stop(wait=True, timeout=60)
+            self.assertIsNotNone(result, recorder.error)
+            self.assertEqual(result.path.suffix, ".mp4")
+            self.assertGreater(result.path.stat().st_size, 1024)
+            self.assertEqual(list(result.path.parent.glob("*.part*")), [])
+            if FFMPEG:
+                proc = subprocess.run([FFMPEG, "-hide_banner", "-i", str(result.path)], capture_output=True, text=True)
+                self.assertIn("h264", proc.stderr)
+                h, m, sec = re.search(r"Duration: (\d+):(\d+):([\d.]+)", proc.stderr).groups()
+                self.assertAlmostEqual(int(h) * 3600 + int(m) * 60 + float(sec), result.duration, delta=0.6)
 
 
 if __name__ == "__main__":

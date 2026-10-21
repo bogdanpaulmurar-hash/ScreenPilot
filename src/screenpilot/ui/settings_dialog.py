@@ -776,6 +776,13 @@ class SettingsDialog(QDialog):
         self._lock(self.rec_quality, "recording.quality")
         column.addWidget(self._row("image", "settings.rec.quality", "settings.rec.quality.desc", self.rec_quality))
         column.addWidget(
+            self._row("video", "settings.rec.engine", "settings.rec.engine.desc",
+                      self._combo("recording.engine", [("", "auto"), ("", "windows"), ("", "ffmpeg")], tr_prefix="settings.rec.engine"))
+        )
+        self.windows_status = label(role="caption", wrap=True)
+        column.addWidget(self.windows_status)
+        self._refresh_windows_status()
+        column.addWidget(
             self._row("sparkle", "settings.rec.encoder", "settings.rec.encoder.desc",
                       self._combo("recording.encoder", [("", "auto"), ("", "hardware"), ("", "software")], tr_prefix="settings.rec.encoder"))
         )
@@ -882,6 +889,12 @@ class SettingsDialog(QDialog):
         self._refresh_ffmpeg_status()
         self.rt.on_change(self._refresh_ffmpeg_status)
         return page
+
+    def _refresh_windows_status(self) -> None:
+        ok, reason = self.app.recording.windows_encoder()
+        self.windows_status.setText(
+            self.t("settings.rec.windows_status.ok") if ok else self.t("settings.rec.windows_status.missing", reason=reason)
+        )
 
     def _refresh_ffmpeg_status(self, refresh: bool = False) -> None:
         info = self.app.recording.ffmpeg(refresh=refresh)

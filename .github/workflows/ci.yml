@@ -36,6 +36,10 @@ jobs:
         if: runner.os == 'Windows' && matrix.python == '3.12'
         continue-on-error: true
         run: choco install ffmpeg -y --no-progress
+      - name: Windows H.264 encoder (Media Foundation) availability
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: python -c "from screenpilot.recording import mediafoundation as m; print(m.availability())"
       - name: Unit, Windows integration and UI tests
         env:
           QT_QPA_PLATFORM: offscreen

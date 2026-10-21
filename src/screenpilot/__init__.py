@@ -8,5 +8,5 @@ Autopilot should depend only on the public service APIs exposed by
 
 __all__ = ["__version__", "APP_NAME"]
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 APP_NAME = "ScreenPilot"

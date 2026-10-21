@@ -514,7 +514,7 @@
   "settings.rec.ffmpeg": "FFmpeg",
   "settings.rec.ffmpeg.desc": "Optional tool for MP4 and sound. Not included: install an approved build (winget install Gyan.FFmpeg) or copy ffmpeg.exe into %LOCALAPPDATA%\\ScreenPilot. Found automatically right after installing, no restart needed.",
   "settings.rec.ffmpeg.check": "Check again",
-  "settings.rec.ffmpeg.missing": "FFmpeg not found — recordings are saved as GIF.",
+  "settings.rec.ffmpeg.missing": "FFmpeg not found — MP4 uses Windows' encoder (no sound); without it, GIF.",
   "settings.rec.ffmpeg.found": "FFmpeg {version} found: {path}",
   "cli.record.started": "Recording for {seconds} s (encoder: {encoder})… Ctrl+C stops earlier.",
   "cli.record.saved": "Saved {path} ({seconds} s, {frames} frames, {fps} fps captured, {grab} ms per grab)",
@@ -688,5 +688,14 @@
   "editor.discard.question": "Close without saving? Your annotations will be lost.",
   "recording.partial_saved": "The video encoder (FFmpeg) was stopped after {seconds} s, probably by another program such as security software. The video up to then is saved: {name}. Click to show it.",
   "recording.ffmpeg_blocked.title": "FFmpeg is blocked",
-  "recording.ffmpeg_blocked.body": "Windows or your security software does not let FFmpeg run (access denied), so this recording is saved as GIF. Ask IT to allow ffmpeg.exe, or use GIF."
+  "recording.ffmpeg_blocked.body": "Windows or your security software does not let FFmpeg run (access denied), so this recording is saved as GIF. Ask IT to allow ffmpeg.exe, or use GIF.",
+  "recording.error.windows_encoder": "Windows' built-in video encoder could not record. Try Settings › Recording › Video engine › FFmpeg, or GIF.",
+  "recording.retrying.windows": "FFmpeg was stopped (often by security software); recording again with Windows' built-in encoder…",
+  "settings.rec.engine": "Video engine",
+  "settings.rec.engine.desc": "Automatic: Windows' built-in encoder for video without sound (nothing extra to install, not blocked by security software); FFmpeg when you record sound.",
+  "settings.rec.engine.auto": "Automatic",
+  "settings.rec.engine.windows": "Windows (built-in)",
+  "settings.rec.engine.ffmpeg": "FFmpeg",
+  "settings.rec.windows_status.ok": "Windows' built-in H.264 encoder is available.",
+  "settings.rec.windows_status.missing": "Windows' built-in encoder is not available: {reason}"
 }

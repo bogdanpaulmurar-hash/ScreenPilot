@@ -241,6 +241,8 @@ def _setup(app, args) -> int:
 
 def _record_info(app) -> None:
     t = app.translator.t
+    ok, reason = app.recording.windows_encoder()
+    print(t("settings.rec.windows_status.ok") if ok else t("settings.rec.windows_status.missing", reason=reason))
     info = app.recording.ffmpeg(refresh=True)
     if info is None:
         if app.recording.problem:

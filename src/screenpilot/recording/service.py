@@ -40,6 +40,7 @@ class RecordingService:
         source_factory: Callable[[], FrameSource] | None = None,
         ffmpeg_prober: Callable[[Path], FfmpegInfo] = probe,
         ffmpeg_search_dirs: Callable[[], list[Path]] | None = None,
+        windows_encoder: Callable[[], tuple[bool, str]] | None = None,
     ) -> None:
         self.settings = settings
         self.backend = backend
@@ -56,6 +57,12 @@ class RecordingService:
         self._missing_logged = False
         self._lock = threading.Lock()
         self.current: Recorder | None = None
+        if windows_encoder is None:
+            from screenpilot.recording import mediafoundation
+
+            windows_encoder = mediafoundation.availability
+        self.windows_encoder = windows_encoder
+        self.ffmpeg_unreliable = False  # FFmpeg was stopped from outside during a recording this session
         self.problem = ""  # why a found FFmpeg could not be used (e.g. access denied)
 
     # -- environment ----------------------------------------------------------------
@@ -140,14 +147,22 @@ class RecordingService:
         self._learn_from_last_failure()
         opts = options or self.options()
         output = output or self.output_path(opts.format)
-        info = None if opts.is_gif else self.ffmpeg()
-        if not opts.is_gif and info is None:
+        engine = "gif" if opts.is_gif else self.choose_engine(opts)
+        info = self.ffmpeg() if engine == "ffmpeg" else None
+        if engine == "ffmpeg" and info is None:
             raise RecordingError("ffmpeg was not found", message_key="recording.error.no_ffmpeg")
-        encoder = info.choose_encoder(opts.encoder) if info else "gif"
+        if engine == "windows" and opts.has_audio:
+            log.info("Recording without sound: the Windows encoder writes video only (sound needs FFmpeg)")
+            opts = opts.without_audio()
+        from screenpilot.recording import mediafoundation
+
+        encoder = {"gif": "gif", "windows": mediafoundation.ENCODER_NAME}.get(engine) or info.choose_encoder(opts.encoder)
 
         def sink_factory(width: int, height: int):
             if opts.is_gif:
                 return PillowGifSink(output, width=width, height=height, fps=opts.gif_fps, max_width=opts.gif_max_width)
+            if engine == "windows":
+                return mediafoundation.MediaFoundationSink(output, width=width, height=height, fps=opts.fps, quality=opts.quality)
             return FfmpegSink(
                 info,
                 output,
@@ -168,12 +183,49 @@ class RecordingService:
         self.current = recorder
         return recorder
 
+    def choose_engine(self, opts: RecordingOptions) -> str:
+        """``"windows"`` or ``"ffmpeg"`` for an MP4 recording (raises when neither can record).
+
+        * ``auto``: Windows' built-in encoder for video only (in-process: nothing for security
+          software to block or kill), FFmpeg when sound is wanted; and the Windows encoder
+          whenever FFmpeg is missing, blocked or was stopped during a recording.
+        * ``windows`` / ``ffmpeg``: that one, falling back to the other when it is not usable.
+        """
+        def windows_ok() -> bool:
+            try:
+                return bool(self.windows_encoder()[0])
+            except Exception:  # noqa: BLE001
+                log.exception("Checking the Windows encoder failed")
+                return False
+
+        want = opts.engine
+        if want == "ffmpeg" and not self.ffmpeg_unreliable:
+            if self.ffmpeg() is not None:
+                return "ffmpeg"
+            if windows_ok():
+                return "windows"
+            raise RecordingError("ffmpeg was not found", message_key="recording.error.no_ffmpeg")
+        if want == "auto" and opts.has_audio and not self.ffmpeg_unreliable and self.ffmpeg() is not None:
+            return "ffmpeg"
+        if windows_ok():
+            return "windows"
+        if self.ffmpeg() is not None:
+            return "ffmpeg"
+        raise RecordingError("No MP4 encoder is available", message_key="recording.error.no_ffmpeg")
+
     def _learn_from_last_failure(self) -> None:
         last = self.current
-        if last is None or last.error is None or self._ffmpeg is None:
+        if last is None or last.error is None:
             return
-        if last.error.message_key == "recording.error.encoder_failed" and last.encoder not in ("", "gif", "libx264"):
+        if (
+            self._ffmpeg is not None
+            and last.error.message_key == "recording.error.encoder_failed"
+            and last.encoder not in ("", "gif", "libx264", "windows-h264")
+        ):
             self._ffmpeg.mark_broken(last.encoder)
+        if last.error.message_key == "recording.error.encoder_failed" and last.encoder != "windows-h264":
+            # FFmpeg itself stopped (pipe closed): most often security software. Prefer Windows' encoder now.
+            self.ffmpeg_unreliable = True
         self.current = None
 
     def start(self, rect: Rect, options: RecordingOptions | None = None, *, output: Path | None = None) -> Recorder:

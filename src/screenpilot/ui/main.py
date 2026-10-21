@@ -192,6 +192,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             controller.edge_bar = edge_bar
             edge_bar.start()
         phase("startup.edge_bar")
+        if app.recording is not None:  # the first Windows-encoder check takes ~1 s: do it off the UI thread
+            import threading
+
+            threading.Thread(target=app.recording.windows_encoder, name="mf-probe", daemon=True).start()
         app.diagnostics.record("app.startup", (time.perf_counter() - started) * 1000, **phases)
         log.info("Desktop UI ready (%s)", ", ".join(f"{k} {v:.0f} ms" for k, v in phases.items()))
 

@@ -65,6 +65,7 @@ DEFAULTS: dict[str, Any] = {
         "gif_max_width": 1920,
         "quality": 20,  # CRF-like; 20 keeps small UI text readable (0.5.2, was 23)
         "encoder": "auto",
+        "engine": "auto",  # MP4 writer: "auto" (Windows built-in for video only, FFmpeg for sound), "windows", "ffmpeg"
         "microphone": "",
         "system_audio": "",
         "audio_offset_ms": 0,
