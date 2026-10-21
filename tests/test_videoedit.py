@@ -314,7 +314,9 @@ class SalvageTests(unittest.TestCase):
                 sink.write(frame, i / 10)
                 _time.sleep(0.01)
             _time.sleep(2.0)  # let ffmpeg encode and write them
-            sink._proc.kill()  # what security software does
+            from screenpilot.recording.ffmpeg import kill_tree
+
+            kill_tree(sink._proc)  # what security software does (the whole tree: CI's ffmpeg is a shim)
             path = sink.salvage()
             self.assertEqual(path, out)
             self.assertGreater(VideoEditService(FakeRecording()).open(out).duration, 0.5)

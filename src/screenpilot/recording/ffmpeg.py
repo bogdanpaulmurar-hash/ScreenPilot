@@ -392,6 +392,23 @@ def convert_to_gif(info: FfmpegInfo, source: Path, output: Path, *, fps: int = 1
     return output
 
 
+def kill_tree(proc: subprocess.Popen) -> None:
+    """Stop ffmpeg and its children: package-manager shims (Chocolatey) start the real
+    ffmpeg as a child process, which would otherwise keep running and keep the file open."""
+    if proc.poll() is not None:
+        return
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=10,
+                creationflags=_creation_flags(), stdin=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if proc.poll() is None:
+        proc.kill()
+
+
 def _replace_retrying(source: Path, target: Path, attempts: int = 15) -> None:
     """``os.replace`` that waits for Windows to release a file (a just-killed process, the antivirus)."""
     for attempt in range(attempts):
@@ -603,8 +620,7 @@ class FfmpegSink:
         proc = self._proc
         if proc is not None:
             try:
-                if proc.poll() is None:
-                    proc.kill()
+                kill_tree(proc)
                 proc.wait(5)
             except (OSError, subprocess.SubprocessError):
                 pass
@@ -640,7 +656,7 @@ class FfmpegSink:
         proc = self._proc
         if proc is not None:
             try:
-                proc.kill()
+                kill_tree(proc)
                 proc.wait(5)
             except (OSError, subprocess.SubprocessError):
                 pass
