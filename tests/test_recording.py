@@ -383,6 +383,52 @@ class RecorderTests(unittest.TestCase):
             self.assertIn("recording.finished", names)
             self.assertIn("paused", [e[1] for e in events])
 
+    def test_failure_after_some_seconds_keeps_the_partial_recording(self):
+        from screenpilot.core.errors import RecordingError as _RE
+
+        events = []
+
+        class Bus:
+            def publish(self, name, **payload):
+                events.append((name, payload))
+
+        class DyingSink:
+            output = Path("x.mp4")
+            frames_written = frames_dropped = frames_duplicated = 0
+            salvaged = False
+
+            def start(self, ts=0.0): pass
+            def wait_ready(self, timeout=0): return True
+            def pause(self): pass
+            def resume(self, ts): pass
+            def finish(self): return self.output
+            def abort(self): raise AssertionError("must not delete what can be kept")
+
+            def write(self, frame, ts):
+                self.frames_written += 1
+                if self.frames_written > 70:  # 7 s at 10 fps
+                    raise _RE("ffmpeg stopped accepting frames", message_key="recording.error.encoder_failed")
+
+            def salvage(self):
+                self.salvaged = True
+                return Path("x.mp4")
+
+        clock = [0.0]
+
+        def tick():
+            clock[0] += 0.1
+            return clock[0]
+
+        sink = DyingSink()
+        opts = RecordingOptions(format="mp4", fps=10, highlight_cursor=False, click_effects=False)
+        recorder = Recorder(BackendFrameSource(DemoBackend(Rect(0, 0, 640, 400))), lambda w, h: sink, opts, bus=Bus(), clock=tick)
+        recorder.start(Rect(0, 0, 320, 200))
+        self.assertTrue(recorder.join(10))
+        self.assertEqual(recorder.state, State.FAILED)
+        self.assertTrue(sink.salvaged)
+        failed = [p for n, p in events if n == "recording.failed"][0]
+        self.assertEqual(failed["partial"], Path("x.mp4"))
+
     def test_cancel_removes_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "c.gif"

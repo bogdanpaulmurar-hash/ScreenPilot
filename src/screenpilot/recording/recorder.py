@@ -31,6 +31,7 @@ from screenpilot.recording.source import FrameSource
 log = logging.getLogger(__name__)
 
 READY_TIMEOUT = 10.0
+SALVAGE_AFTER_S = 5  # same window as the UI's one-time encoder retry
 
 
 class Sink(Protocol):
@@ -360,11 +361,20 @@ class Recorder:
     def _fail(self, sink: Sink | None, exc: ScreenPilotError) -> None:
         log.error("Recording failed: %s", exc)
         self.error = exc
+        self.partial: Path | None = None
+        # Past the first seconds (an encoder retry would restart from scratch), keep what was
+        # recorded when the encoder died: that is minutes of work the user does not want to lose.
+        keep = not self._cancel and self._frames > self.options.frame_rate * SALVAGE_AFTER_S
         if sink is not None:
             try:
-                sink.abort()
+                if keep and hasattr(sink, "salvage"):
+                    self.partial = sink.salvage()
+                    if self.partial is not None:
+                        log.info("Kept the recording up to the failure: %s", self.partial)
+                if self.partial is None:
+                    sink.abort()
             except Exception:  # noqa: BLE001
                 log.exception("Cleaning up the failed recording failed")
         self._set_state(State.FAILED)
         if self.bus is not None:
-            self.bus.publish("recording.failed", error=exc)
+            self.bus.publish("recording.failed", error=exc, partial=self.partial, seconds=self.elapsed)

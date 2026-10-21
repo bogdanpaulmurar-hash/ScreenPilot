@@ -89,7 +89,7 @@
   "settings.tab.capture": "Captură",
   "settings.tab.after_capture": "După captură",
   "settings.tab.hotkeys": "Taste rapide",
-  "settings.start_minimized": "Pornește în zona de notificare",
+  "settings.start_minimized": "La pornirea cu Windows, rămâi în tray",
   "settings.tester_mode": "Mod tester",
   "settings.privacy_note": "ScreenPilot nu trimite niciodată date prin rețea. Capturile rămân pe acest calculator.",
   "settings.image_format": "Format imagine",
@@ -201,7 +201,7 @@
   "settings.theme.light": "Luminos",
   "settings.theme.dark": "Întunecat",
   "settings.language.desc": "Se aplică imediat",
-  "settings.start_minimized.desc": "La pornire apare doar iconița din zona de notificare",
+  "settings.start_minimized.desc": "Pornit din Start, de pe Desktop sau din DevPilot, ScreenPilot deschide mereu Capture Hub",
   "settings.tester_mode.desc": "Arată noutățile și ce trebuie verificat",
   "settings.preview": "Previzualizare rapidă după captură",
   "settings.preview.desc": "Un card mic cu copiere, salvare, fixare și drag-and-drop",
@@ -436,7 +436,7 @@
   "error.recording": "Înregistrarea a eșuat.",
   "recording.error.no_encoder": "FFmpeg nu a putut codifica un video de test: {reason}. Click pentru Setări › Înregistrare (Encoder › Software).",
   "recording.error.ffmpeg_broken": "FFmpeg nu a putut porni. Verifică calea FFmpeg în Setări › Înregistrare.",
-  "recording.error.encoder_failed": "Encoderul video s-a oprit neașteptat. Detaliile sunt în jurnal (Exportă diagnosticul).",
+  "recording.error.encoder_failed": "Encoderul video (FFmpeg) s-a oprit neașteptat, posibil închis de programul de securitate. Detalii: Export diagnostics.",
   "recording.error.gif": "Conversia în GIF a eșuat.",
   "recording.error.empty": "Nu s-a înregistrat nimic.",
   "recording.error.busy": "O înregistrare rulează deja.",
@@ -685,5 +685,8 @@
   "edgebar.editor.save": "Salvează",
   "recording.failed.title": "Înregistrarea nu a pornit",
   "editor.discard.title": "Închide editorul",
-  "editor.discard.question": "Închizi fără să salvezi? Adnotările se pierd."
+  "editor.discard.question": "Închizi fără să salvezi? Adnotările se pierd.",
+  "recording.partial_saved": "Encoderul video (FFmpeg) a fost oprit după {seconds} s, probabil de alt program, de ex. securitatea laptopului. Video-ul până atunci e salvat: {name}. Click ca să-l vezi.",
+  "recording.ffmpeg_blocked.title": "FFmpeg este blocat",
+  "recording.ffmpeg_blocked.body": "Windows sau programul de securitate nu lasă FFmpeg să pornească (acces refuzat), așa că înregistrarea se salvează ca GIF. Cere IT-ului să permită ffmpeg.exe sau folosește GIF."
 }

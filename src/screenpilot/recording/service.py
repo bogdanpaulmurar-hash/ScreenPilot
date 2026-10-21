@@ -56,6 +56,7 @@ class RecordingService:
         self._missing_logged = False
         self._lock = threading.Lock()
         self.current: Recorder | None = None
+        self.problem = ""  # why a found FFmpeg could not be used (e.g. access denied)
 
     # -- environment ----------------------------------------------------------------
     def options(self) -> RecordingOptions:
@@ -82,6 +83,7 @@ class RecordingService:
                 self._ffmpeg = None
                 path = find_ffmpeg(configured, self.app_dir, self.extra_dirs, search_dirs=self.ffmpeg_search_dirs)
                 if path is None:
+                    self.problem = ""
                     if cached is not None or refresh or not self._missing_logged:
                         log.info("ffmpeg not found (configured=%r); MP4 recording unavailable", configured)
                     self._missing_logged = True
@@ -91,9 +93,18 @@ class RecordingService:
                     try:
                         self._ffmpeg = self.ffmpeg_prober(path)
                         self._missing_logged = False
+                        self.problem = ""
                     except RecordingError as exc:
                         log.warning("%s", exc)
+                        # e.g. "[WinError 5] Access is denied": Windows / security software blocks it.
+                        self.problem = str(exc)
             return self._ffmpeg
+
+    @property
+    def ffmpeg_blocked(self) -> bool:
+        """FFmpeg exists but Windows refused to start it (AppLocker / security software)."""
+        problem = self.problem.lower()
+        return "denied" in problem or "winerror 5" in problem
 
     def audio_devices(self) -> list[str]:
         info = self.ffmpeg()

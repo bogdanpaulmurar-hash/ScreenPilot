@@ -294,3 +294,28 @@ class Mp4EditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(FFMPEG, "ffmpeg not installed")
+class SalvageTests(unittest.TestCase):
+    def test_recording_killed_from_outside_is_still_playable(self):
+        import time as _time
+
+        from screenpilot.recording.ffmpeg import FfmpegSink
+        from screenpilot.videoedit import VideoEditService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "rec.mp4"
+            info = probe(Path(FFMPEG))
+            sink = FfmpegSink(info, out, width=320, height=240, fps=10, encoder="libx264")
+            sink.start(0.0)
+            frame = bytes([0, 0, 255, 255]) * (320 * 240)  # red, BGRA
+            for i in range(120):  # 12 s: several keyframes, so several finished fragments
+                sink.write(frame, i / 10)
+                _time.sleep(0.01)
+            _time.sleep(2.0)  # let ffmpeg encode and write them
+            sink._proc.kill()  # what security software does
+            path = sink.salvage()
+            self.assertEqual(path, out)
+            self.assertGreater(VideoEditService(FakeRecording()).open(out).duration, 0.5)
+            self.assertFalse(list(Path(tmp).glob("*.part*")))

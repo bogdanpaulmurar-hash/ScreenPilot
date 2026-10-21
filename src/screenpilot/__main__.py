@@ -243,7 +243,19 @@ def _record_info(app) -> None:
     t = app.translator.t
     info = app.recording.ffmpeg(refresh=True)
     if info is None:
-        print(t("settings.rec.ffmpeg.missing"))
+        if app.recording.problem:
+            print(f"FFmpeg found but not usable: {app.recording.problem}")
+        else:
+            print(t("settings.rec.ffmpeg.missing"))
+        from screenpilot.recording.ffmpeg import candidate_paths
+
+        for path in candidate_paths(app.settings.get("recording.ffmpeg_path") or "", app.recording.app_dir, app.recording.extra_dirs):
+            try:
+                state = "file" if path.is_file() else ("link (target missing)" if path.is_symlink() else "")
+            except OSError as exc:
+                state = f"not readable: {exc}"
+            if state:
+                print(f"  {path}: {state}")
         return
     print(t("settings.rec.ffmpeg.found", version=info.version, path=info.path))
     h264 = sorted(e for e in info.encoders if "264" in e)

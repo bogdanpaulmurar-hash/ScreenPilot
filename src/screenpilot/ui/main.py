@@ -78,6 +78,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     from screenpilot.core.paths import resolve_paths
     from screenpilot.instance import send
 
+    phases: dict[str, float] = {}
+    last = [started]
+
+    def phase(name: str) -> None:
+        """Duration of each start-up step (written to the timing journal: diagnostics)."""
+        now = time.perf_counter()
+        phases[name.split(".", 1)[1]] = round((now - last[0]) * 1000, 1)
+        last[0] = now
+
     command = startup_command(args)
     data_dir = resolve_paths().ensure().data_dir
     if send(data_dir, command) is not None:
@@ -102,13 +111,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     from screenpilot.platform.win32_window import disable_ghosting
 
     disable_ghosting()  # a busy overlay must never be swapped for a "Not responding" ghost
+    phase("startup.imports")
     qt_app = QApplication.instance() or QApplication(list(argv) if argv is not None else sys.argv)
     qt_app.setApplicationName("ScreenPilot")
     qt_app.setOrganizationName("ScreenPilot")
     qt_app.setQuitOnLastWindowClosed(False)  # lives in the tray
     qt_app.setWindowIcon(app_icon())
 
+    phase("startup.qt")
     app = create_app()
+    phase("startup.core")
     app.diagnostics.install_crash_handlers()
     _install_qt_message_handler(app)
 
@@ -149,32 +161,41 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         app.settings.add_listener(on_autostart)
 
-    tray = TrayIcon(controller)
-    controller.tray = tray
-    if devpilot.owns("tray"):
-        log.info("Started by DevPilot: no tray icon (DevPilot's hub shows ScreenPilot's options)")
-    else:
-        tray.show()
+    phase("startup.controller")
 
-    from screenpilot.ui.edge_bar import EdgeBar
-
-    if app.policy.allows("edge_bar"):
-        edge_bar = EdgeBar(controller)
-        controller.edge_bar = edge_bar
-        edge_bar.start()
-
+    # Something visible first: a start from the Start menu, the Desktop or DevPilot opens the
+    # Capture Hub right away (the tray icon and the capture bar follow a moment later).
     initial = command if command.get("cmd") == "action" and command.get("action") != "app.show_hub" else None
     if initial is not None:
         QTimer.singleShot(400, lambda: controller.run_remote(initial))
-    elif autostarted:
-        log.info("Started with Windows: staying in the tray")
     elif not app.settings.get("general.first_run_completed"):
         controller.show_wizard()
-    elif not app.settings.get("general.start_minimized"):
+    elif autostarted and app.settings.get("general.start_minimized"):
+        log.info("Started with Windows: staying in the tray")
+    else:
         controller.show_hub()
+        qt_app.processEvents()
+    phase("startup.window")
 
-    app.diagnostics.record("app.startup", (time.perf_counter() - started) * 1000)
-    log.info("Desktop UI ready")
+    def finish_startup() -> None:
+        tray = TrayIcon(controller)
+        controller.tray = tray
+        if devpilot.owns("tray"):
+            log.info("Started by DevPilot: no tray icon (DevPilot's hub shows ScreenPilot's options)")
+        else:
+            tray.show()
+        phase("startup.tray")
+        from screenpilot.ui.edge_bar import EdgeBar
+
+        if app.policy.allows("edge_bar"):
+            edge_bar = EdgeBar(controller)
+            controller.edge_bar = edge_bar
+            edge_bar.start()
+        phase("startup.edge_bar")
+        app.diagnostics.record("app.startup", (time.perf_counter() - started) * 1000, **phases)
+        log.info("Desktop UI ready (%s)", ", ".join(f"{k} {v:.0f} ms" for k, v in phases.items()))
+
+    QTimer.singleShot(0, finish_startup)
     return qt_app.exec()
 
 

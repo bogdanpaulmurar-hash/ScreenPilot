@@ -450,7 +450,12 @@ class RecordingController(QObject):
                 self._error(exc)
                 return False
             log.info("ffmpeg missing: falling back to GIF")
-            if self.app.settings.get("recording.gif_fallback_notice"):
+            if service.ffmpeg_blocked:
+                self.ctrl.notify_action.emit(
+                    self.t("recording.ffmpeg_blocked.title"), self.t("recording.ffmpeg_blocked.body"), True,
+                    lambda: self.ctrl.show_settings("recording"),
+                )
+            elif self.app.settings.get("recording.gif_fallback_notice"):
                 # Clicking the message opens Settings › Recording (FFmpeg status, path, install hint).
                 self.ctrl.notify_action.emit(
                     self.t("recording.no_ffmpeg.title"),
@@ -638,7 +643,16 @@ class RecordingController(QObject):
         elif event.name == "recording.failed":
             failed = self.recorder
             self._teardown()
-            if not self._retry_with_another_encoder(failed, event.payload["error"]):
+            partial = event.payload.get("partial")
+            if partial is not None:
+                # The encoder was stopped mid-recording (often by security software): the video so
+                # far is saved; clicking the message shows it in Explorer.
+                seconds = round(float(event.payload.get("seconds") or 0))
+                self.ctrl.notify_action.emit(
+                    self.t("recording.failed.title"), self.t("recording.partial_saved", seconds=seconds, name=Path(partial).name),
+                    True, lambda p=Path(partial): self._reveal(p),
+                )
+            elif not self._retry_with_another_encoder(failed, event.payload["error"]):
                 self._error(event.payload["error"])
         elif event.name == "recording.cancelled":
             self._teardown()

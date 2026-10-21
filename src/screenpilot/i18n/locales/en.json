@@ -89,7 +89,7 @@
   "settings.tab.capture": "Capture",
   "settings.tab.after_capture": "After capture",
   "settings.tab.hotkeys": "Hotkeys",
-  "settings.start_minimized": "Start in the system tray",
+  "settings.start_minimized": "When Windows starts it, stay in the tray",
   "settings.tester_mode": "Tester mode",
   "settings.privacy_note": "ScreenPilot never sends data over the network. Captures stay on this computer.",
   "settings.image_format": "Image format",
@@ -201,7 +201,7 @@
   "settings.theme.light": "Light",
   "settings.theme.dark": "Dark",
   "settings.language.desc": "Changes apply immediately",
-  "settings.start_minimized.desc": "Open only the tray icon when ScreenPilot starts",
+  "settings.start_minimized.desc": "Started from the Start menu, the Desktop or DevPilot, ScreenPilot always opens its Capture Hub",
   "settings.tester_mode.desc": "Show what's new and what to verify",
   "settings.preview": "Quick preview after capture",
   "settings.preview.desc": "A small card with copy, save, pin and drag-and-drop",
@@ -436,7 +436,7 @@
   "error.recording": "The recording failed.",
   "recording.error.no_encoder": "FFmpeg could not encode a test video: {reason}. Click for Settings › Recording (Encoder › Software).",
   "recording.error.ffmpeg_broken": "FFmpeg could not be started. Check the FFmpeg path in Settings › Recording.",
-  "recording.error.encoder_failed": "The video encoder stopped unexpectedly. Details are in the log (Export diagnostics).",
+  "recording.error.encoder_failed": "The video encoder (FFmpeg) stopped unexpectedly, possibly closed by security software. Details: Export diagnostics.",
   "recording.error.gif": "The GIF conversion failed.",
   "recording.error.empty": "Nothing was recorded.",
   "recording.error.busy": "A recording is already running.",
@@ -685,5 +685,8 @@
   "edgebar.editor.save": "Save",
   "recording.failed.title": "Recording failed",
   "editor.discard.title": "Close the editor",
-  "editor.discard.question": "Close without saving? Your annotations will be lost."
+  "editor.discard.question": "Close without saving? Your annotations will be lost.",
+  "recording.partial_saved": "The video encoder (FFmpeg) was stopped after {seconds} s, probably by another program such as security software. The video up to then is saved: {name}. Click to show it.",
+  "recording.ffmpeg_blocked.title": "FFmpeg is blocked",
+  "recording.ffmpeg_blocked.body": "Windows or your security software does not let FFmpeg run (access denied), so this recording is saved as GIF. Ask IT to allow ffmpeg.exe, or use GIF."
 }

@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 HARDWARE_ENCODERS = ("h264_nvenc", "h264_qsv", "h264_amf", "h264_mf")
 SOFTWARE_ENCODERS = ("libx264", "libopenh264", "mpeg4")
 PROBE_TIMEOUT = 15
+MIN_SALVAGE_BYTES = 1024
 SLOW_PROBE_TIMEOUT = 90
 FINISH_TIMEOUT = 60
 
@@ -361,7 +362,11 @@ def record_command(
     args += COLOR_TAGS
     if audio:
         args += ["-c:a", "aac", "-b:a", "160k", "-shortest"]
-    args += ["-movflags", "+faststart", str(output)]
+    # Fragmented MP4: what was recorded stays playable even when ffmpeg is stopped from
+    # outside (security software, crash); joining segments writes a normal MP4 again.
+    # -flush_packets 1: fragments reach the disk at once (static screens compress so well that
+    # minutes could otherwise sit in ffmpeg's write buffer and be lost with the process).
+    args += ["-flush_packets", "1", "-movflags", "+frag_keyframe+empty_moov+default_base_moof", str(output)]
     return args
 
 
@@ -576,6 +581,48 @@ class FfmpegSink:
             for path in segments + [list_file]:
                 path.unlink(missing_ok=True)
         return self.output
+
+    def salvage(self) -> Path | None:
+        """After ffmpeg died mid-recording: keep what was written (fragmented MP4 is playable).
+
+        One segment becomes the output file; several are joined (or, if joining fails,
+        kept as ``<name>_partN.mp4``). Returns the saved file, or ``None``.
+        """
+        proc = self._proc
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(5)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            self._proc = None
+        segments = [s for s in self._segments if s.exists() and s.stat().st_size > MIN_SALVAGE_BYTES]
+        if not segments:
+            return None
+        try:
+            if len(segments) == 1:
+                os.replace(segments[0], self.output)
+                return self.output
+            list_file = self.output.with_suffix(".segments.txt")
+            list_file.write_text("".join(f"file '{s.as_posix()}'\n" for s in segments), encoding="utf-8")
+            proc = self._runner(concat_command(self.info.path, list_file, self.output), timeout=600)
+            list_file.unlink(missing_ok=True)
+            if proc.returncode == 0 and self.output.exists():
+                for s in segments:
+                    s.unlink(missing_ok=True)
+                return self.output
+        except (OSError, subprocess.SubprocessError) as exc:
+            log.warning("Joining the saved segments failed: %s", exc)
+        kept = []
+        for i, s in enumerate(segments, start=1):
+            target = self.output.with_name(f"{self.output.stem}_part{i}.mp4")
+            try:
+                os.replace(s, target)
+                kept.append(target)
+            except OSError:
+                pass
+        return kept[0] if kept else None
 
     def abort(self) -> None:
         proc = self._proc

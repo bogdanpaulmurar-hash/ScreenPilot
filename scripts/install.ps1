@@ -135,6 +135,24 @@ function Install-Ffmpeg {
     }
 }
 
+function Stop-ScreenPilot {
+    # Files must not be replaced under a running copy (mixed old/new modules crash it).
+    # 1) ask the running app to quit; 2) stop whatever is left, however it was started
+    #    (pythonw / python -m screenpilot, screenpilot.exe, the venv launcher's child process).
+    $ErrorActionPreference = "Continue"
+    $vpy = Join-Path $venv "Scripts\python.exe"
+    if (Test-Path $vpy) {
+        & $vpy -m screenpilot action app.quit --no-start 2>&1 | Out-Null
+        Start-Sleep -Milliseconds 1500
+    }
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($venv, [StringComparison]::OrdinalIgnoreCase)) -or
+            ($_.CommandLine -and $_.CommandLine -match '(-m\s+screenpilot\b|screenpilot(-gui)?\.exe)' -and $_.Name -match '^(pythonw?|screenpilot(-gui)?)\.exe$')
+        } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
 $version = Get-SourceVersion
 Write-Host "ScreenPilot installer - version $version" -ForegroundColor Cyan
 Write-Host "  source : $source"
@@ -164,9 +182,7 @@ if ($Ffmpeg) {
 }
 
 # Stop a running copy so its files can be replaced.
-Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.ExecutablePath -eq $vpythonw } |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+Stop-ScreenPilot
 
 # Build from a local temporary copy: pip cannot always write next to files that
 # Google Drive / OneDrive keep "online only", and some paths contain spaces.
