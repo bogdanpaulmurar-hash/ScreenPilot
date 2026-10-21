@@ -1120,6 +1120,18 @@ class AppController(QObject):
         window.activateWindow()
         return window
 
+    def customize_edge_bar(self, parent: QWidget | None = None) -> QWidget:
+        """Pick and order the buttons of the capture bar at the top of the screen."""
+        from screenpilot.ui.edge_bar_editor import EdgeBarEditor
+
+        dialog = EdgeBarEditor(self.app, parent)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        self._windows["edge_bar_editor"] = dialog
+        dialog.destroyed.connect(lambda *_: self._windows.pop("edge_bar_editor", None))
+        return dialog
+
     def show_history(self) -> QWidget:
         from screenpilot.ui.history_window import HistoryWindow
 

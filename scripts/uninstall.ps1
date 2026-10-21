@@ -20,6 +20,8 @@ Get-CimInstance Win32_Process -Filter "Name = 'pythonw.exe'" -ErrorAction Silent
 if (Test-Path $vpython) {
     & $vpython -m screenpilot setup --remove
 }
+$desktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "ScreenPilot.lnk"
+if (Test-Path $desktopLink) { Remove-Item -Force $desktopLink; Write-Host "Removed $desktopLink" }
 if (Test-Path $venv) {
     Remove-Item -Recurse -Force $venv
     Write-Host "Removed $venv"

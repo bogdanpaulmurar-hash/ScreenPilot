@@ -263,6 +263,10 @@ class SettingsDialog(QDialog):
         column.addWidget(
             self._row("chevron_down", "settings.edge_bar", "settings.edge_bar.desc", self._toggle("general.edge_bar"))
         )
+        customize = QPushButton()
+        self.rt.bind(customize.setText, "settings.edge_bar.customize")
+        customize.clicked.connect(lambda: self.controller.customize_edge_bar(self))
+        column.addWidget(self._row("settings", "settings.edge_bar.buttons", "settings.edge_bar.buttons.desc", customize))
         column.addWidget(
             self._row(
                 "edit", "settings.editor_open", "settings.editor_open.desc",
@@ -295,6 +299,13 @@ class SettingsDialog(QDialog):
         self.rt.bind(note.setText, "settings.privacy_note")
         privacy.addWidget(note, 1)
         column.addLayout(privacy)
+        from screenpilot import __version__
+
+        version = label(role="caption")
+        version.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.rt.bind(version.setText, "settings.version", version=__version__)
+        column.addWidget(version)
+        self.version_label = version
         column.addStretch(1)
         return page
 

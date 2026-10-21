@@ -147,7 +147,7 @@ class TrayIcon(QSystemTrayIcon):
             label = t(f"action.{action.data()}")
             action.setText(f"{label}\t{hotkey}" if hotkey else label)
         region = self.app.hotkeys.binding("capture.region")
-        self.setToolTip(t("tray.tooltip", hotkey=region or "-"))
+        self.setToolTip(f'{t("tray.tooltip", hotkey=region or "-")}\nv{__version__}')
         for code, action in self._language_actions.items():
             action.setChecked(code == self.app.translator.language)
 

@@ -29,20 +29,7 @@ RESUME_POLL_MS = 300
 ANIM_MS = 160
 BUTTON_W = 64
 
-BUTTONS = (
-    # icon, tooltip key / label key, action
-    ("region", "hub.mode.region", "capture.region"),
-    ("window", "hub.mode.window", "capture.window"),
-    ("monitor", "hub.mode.screen", "capture.fullscreen"),
-    ("monitors", "hub.mode.all", "capture.all_monitors"),
-    ("scroll", "hub.mode.scrolling", "capture.scrolling"),
-    ("timer", "edgebar.delay", "delayed"),
-    ("video", "edgebar.video", "record.video"),
-    ("|", None, None),
-    ("logo", "edgebar.hub", "hub"),
-    ("history", "edgebar.history", "history"),
-    ("eye_off", "edgebar.hide", "hide"),
-)
+from screenpilot.ui.edge_items import EDGE_ITEMS, SEPARATOR, edge_buttons
 
 
 class EdgeBar(QWidget):
@@ -68,43 +55,12 @@ class EdgeBar(QWidget):
 
         self.panel = QFrame(self)
         self.panel.setObjectName("EdgePanel")
-        row = QHBoxLayout(self.panel)
-        row.setContentsMargins(8, 6, 8, 8)
-        row.setSpacing(2)
+        self._row = QHBoxLayout(self.panel)
+        self._row.setContentsMargins(8, 6, 8, 8)
+        self._row.setSpacing(2)
         self.buttons: dict[str, QToolButton] = {}
-        for icon_name, key, action in BUTTONS:
-            if icon_name == "|":
-                sep = QFrame()
-                sep.setObjectName("EdgeSep")
-                sep.setFixedSize(1, 40)
-                row.addWidget(sep)
-                continue
-            button = QToolButton()
-            button.setProperty("icon_name", icon_name)
-            button.setToolButtonStyle(
-                Qt.ToolButtonStyle.ToolButtonTextUnderIcon if action and action.startswith(("capture.", "record.")) or action == "delayed"
-                else Qt.ToolButtonStyle.ToolButtonIconOnly
-            )
-            button.setMinimumWidth(BUTTON_W if button.toolButtonStyle() != Qt.ToolButtonStyle.ToolButtonIconOnly else 40)
-            button.setIconSize(QSize(22, 22))
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setFont(ui_font(8.5))
-            if action == "delayed":
-                params = lambda: {"seconds": self.app.settings.get("capture.default_delay_seconds")}  # noqa: E731
-                rt.bind(button.setToolTip, key, params_fn=params)
-                rt.bind(button.setText, "hub.delay", params_fn=params)
-            elif action and action.startswith(("capture.", "record.")):
-                rt.bind(button.setText, key)
-                rt.bind(button.setToolTip, key if action.startswith("capture.") else "edgebar.video.tip")
-            else:
-                rt.bind(button.setToolTip, key)
-            if action is None:
-                button.setEnabled(False)
-            else:
-                button.clicked.connect(lambda _=False, a=action: self._activate(a))
-            row.addWidget(button)
-            self.buttons[action or icon_name] = button
-        self.panel.adjustSize()
+        self._button_rt: Retranslator | None = None
+        self._build_buttons()
         self.panel.hide()
 
         self._collapse_timer = QTimer(self)
@@ -122,6 +78,57 @@ class EdgeBar(QWidget):
         rt.bind(self.setToolTip, "edgebar.handle")
         self._unsub = self.app.settings.add_listener(self._on_setting)
         self.destroyed.connect(lambda *_: self._unsub())
+
+    # -- buttons (Settings › General › Capture bar buttons) ---------------------
+    def _build_buttons(self) -> None:
+        """(Re)create the buttons from ``general.edge_bar_buttons``."""
+        if self._button_rt is not None:
+            self._button_rt.dispose()  # bindings of the old buttons must not outlive them
+        while self._row.count():
+            item = self._row.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self.buttons = {}
+        rt = self._button_rt = Retranslator(self.app.translator)
+        ids = [i for i in edge_buttons(self.app.settings.get("general.edge_bar_buttons"))
+               if i == SEPARATOR or self.controller.allowed(EDGE_ITEMS[i].action or "")]
+        for item_id in ids:
+            if item_id == SEPARATOR:
+                sep = QFrame()
+                sep.setObjectName("EdgeSep")
+                sep.setFixedSize(1, 40)
+                self._row.addWidget(sep)
+                continue
+            item = EDGE_ITEMS[item_id]
+            button = QToolButton()
+            button.setProperty("icon_name", item.icon)
+            labelled = item.label is not None
+            button.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextUnderIcon if labelled else Qt.ToolButtonStyle.ToolButtonIconOnly
+            )
+            button.setMinimumWidth(BUTTON_W if labelled else 40)
+            button.setIconSize(QSize(22, 22))
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setFont(ui_font(8.5))
+            params = (lambda: {"seconds": self.app.settings.get("capture.default_delay_seconds")}) if item_id == "delayed" else None
+            if labelled:
+                rt.bind(button.setText, item.label, params_fn=params)
+            rt.bind(button.setToolTip, item.tooltip, params_fn=params)
+            button.clicked.connect(lambda _=False, a=item_id: self._activate(a))
+            self._row.addWidget(button)
+            self.buttons[item_id] = button
+        self._restyle(theme())
+        self.panel.adjustSize()
+        if self.isVisible():
+            self._relayout()
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self)
+        menu.addAction(self.t("edgebar.customize"), lambda: self.controller.customize_edge_bar())
+        menu.addAction(self.t("edgebar.hide"), lambda: self._activate("hide"))
+        menu.exec(event.globalPos())
 
     # -- geometry -------------------------------------------------------------
     def _screen_rect(self) -> QRect:
@@ -201,6 +208,8 @@ class EdgeBar(QWidget):
                 self.hide()
         elif key == "general.edge_bar_position" and self.isVisible() and not self._dragged:
             self._relayout()
+        elif key == "general.edge_bar_buttons":
+            self._build_buttons()
 
     # -- actions --------------------------------------------------------------
     def _activate(self, action: str) -> None:
@@ -216,9 +225,13 @@ class EdgeBar(QWidget):
                 self.app.settings.save()
             except OSError:
                 log.exception("Could not save settings")
+        elif action == "settings":
+            self.collapse()
+            self.controller.show_settings()
         elif action == "delayed":
             self.controller.trigger("capture.delayed", from_menu=True)
         else:
+            self.collapse()
             self.controller.trigger(action, from_menu=True)
 
     # -- input ----------------------------------------------------------------

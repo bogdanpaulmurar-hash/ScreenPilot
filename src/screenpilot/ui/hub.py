@@ -156,6 +156,13 @@ class CaptureHub(QWidget):
         privacy = label(role="caption")
         rt.bind(privacy.setText, "hub.footer")
         footer.addWidget(privacy, 1)
+        from screenpilot import __version__
+
+        version = label(role="caption")
+        version.setText(f"v{__version__}")
+        version.setToolTip(f"ScreenPilot {__version__}")
+        footer.addWidget(version)
+        self.version_label = version
         root.addLayout(footer)
 
         rt.on_change(self._refresh)

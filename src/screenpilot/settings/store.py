@@ -38,6 +38,7 @@ DEFAULTS: dict[str, Any] = {
         "theme": "system",
         "edge_bar": True,
         "edge_bar_position": 0.5,
+        "edge_bar_buttons": [],  # button ids of the capture bar, in order; [] = the default set
     },
     "capture": {
         "default_delay_seconds": 3,

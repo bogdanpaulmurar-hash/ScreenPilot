@@ -1084,6 +1084,44 @@ class RecordingUiTests(UiTestCase):
         QTest.mouseClick(toast, Qt.MouseButton.LeftButton)
         self.assertEqual(clicked, [1])
 
+    def test_edge_bar_buttons_can_be_customised(self):
+        from screenpilot.ui.edge_bar import EdgeBar
+
+        bar = EdgeBar(self.controller)
+        self.assertIn("capture.region", bar.buttons)
+        self.assertNotIn("ocr.region", bar.buttons)
+        editor = self.controller.customize_edge_bar()
+        QTest.qWaitForWindowExposed(editor)
+        ids = [editor.available.item(i).data(Qt.ItemDataRole.UserRole) for i in range(editor.available.count())]
+        editor.available.setCurrentRow(ids.index("ocr.region"))
+        editor.chosen.setCurrentRow(0)
+        editor.add()  # after Region
+        self.assertEqual(editor.chosen_ids()[:2], ["capture.region", "ocr.region"])
+        editor.chosen.setCurrentRow(editor.chosen_ids().index("capture.window"))
+        editor.remove()
+        shot(editor, "49_edge_bar_editor")
+        editor.save()
+        self.assertEqual(self.app.settings.get("general.edge_bar_buttons")[:2], ["capture.region", "ocr.region"])
+        QApplication.processEvents()
+        self.assertIn("ocr.region", bar.buttons)
+        self.assertNotIn("capture.window", bar.buttons)
+        bar.expand()
+        QTest.qWait(250)
+        shot(bar, "50_edge_bar_custom")
+        self.app.translator.set_language("ro")  # bindings of the rebuilt buttons follow the language
+        self.app.translator.set_language("en")
+        bar.close()
+
+    def test_version_is_visible(self):
+        from screenpilot import __version__
+
+        hub = self.controller.show_hub()
+        self.assertIn(__version__, hub.version_label.text())
+        dialog = self.controller.show_settings()
+        self.assertIn(__version__, dialog.version_label.text())
+        dialog.close()
+        hub.close()
+
     def test_policy_blocks_recording_everywhere(self):
         from screenpilot.core.policy import Policy
 
