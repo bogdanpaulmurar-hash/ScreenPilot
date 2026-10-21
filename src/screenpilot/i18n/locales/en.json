@@ -697,5 +697,11 @@
   "settings.rec.engine.windows": "Windows (built-in)",
   "settings.rec.engine.ffmpeg": "FFmpeg",
   "settings.rec.windows_status.ok": "Windows' built-in H.264 encoder is available.",
-  "settings.rec.windows_status.missing": "Windows' built-in encoder is not available: {reason}"
+  "settings.rec.windows_status.missing": "Windows' built-in encoder is not available: {reason}",
+  "settings.scroll_mode": "Scrolling capture",
+  "settings.scroll_mode.desc": "Automatic: ScreenPilot turns the mouse wheel for you. Manual: you scroll yourself (wheel, keys or scrollbar) at your own pace; press Esc when you're done.",
+  "settings.scroll_mode.auto": "Automatic (ScreenPilot scrolls)",
+  "settings.scroll_mode.manual": "Manual (I scroll, Esc to finish)",
+  "scroll.manual.starting": "Scroll the area now…  Esc when done",
+  "scroll.manual.progress": "Recording the scroll… {frames} frames · {height} px  ·  Esc when done"
 }

@@ -50,6 +50,7 @@ DEFAULTS: dict[str, Any] = {
         "filename_template": "ScreenPilot_{date}_{time}_{mode}",
         "output_dir": "",
         "region_action": "workflow",  # Region (Ctrl+Shift+1): "workflow" = after-capture actions, "copy" = clipboard only
+        "scroll_mode": "auto",  # scrolling capture: "auto" = ScreenPilot scrolls, "manual" = you scroll, Esc finishes
     },
     "watermark": {
         "enabled": False,

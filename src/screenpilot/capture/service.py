@@ -151,14 +151,14 @@ class CaptureService:
         return self.capture_window(window)
 
     # -- scrolling ------------------------------------------------------------
-    def capture_scrolling(self, rect: Rect, scroller, **options: Any) -> tuple[CaptureResult | None, str]:
+    def capture_scrolling(self, rect: Rect, scroller, *, manual: bool = False, **options: Any) -> tuple[CaptureResult | None, str]:
         """Scroll ``rect`` with ``scroller`` and stitch one tall capture.
 
         Blocking: run from a worker thread. Returns (result, reason); see
         :func:`screenpilot.capture.scrolling.capture_scrolling` for reasons.
         The result is ``None`` when the user cancelled (``reason == "cancelled"``).
         """
-        from screenpilot.capture.scrolling import capture_scrolling
+        from screenpilot.capture.scrolling import capture_scrolling, capture_scrolling_manual
 
         area = self.desktop().clamp(rect)
         if area.is_empty:
@@ -171,7 +171,12 @@ class CaptureService:
         def progress(frames: int, height: int) -> None:
             self.bus.publish(EVENT_SCROLL_PROGRESS, frames=frames, height=height)
 
-        image, reason = capture_scrolling(grab, area, scroller, progress=progress, **options)
+        if manual:  # the user scrolls; Esc finishes (no pause question)
+            options.pop("on_stop", None)
+            options.pop("settle", None)
+            image, reason = capture_scrolling_manual(grab, area, scroller, progress=progress, **options)
+        else:
+            image, reason = capture_scrolling(grab, area, scroller, progress=progress, **options)
         if reason == "cancelled":
             self.bus.publish(EVENT_CANCELLED, mode=MODE_SCROLLING)
             return None, reason

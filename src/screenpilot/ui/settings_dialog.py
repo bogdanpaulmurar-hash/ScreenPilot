@@ -345,6 +345,12 @@ class SettingsDialog(QDialog):
             )
         )
         column.addWidget(
+            self._row(
+                "region", "settings.scroll_mode", "settings.scroll_mode.desc",
+                self._combo("capture.scroll_mode", [("", "auto"), ("", "manual")], tr_prefix="settings.scroll_mode"),
+            )
+        )
+        column.addWidget(
             self._row("check", "settings.action_bar", "settings.action_bar.desc", self._toggle("selector.action_bar"))
         )
 

@@ -188,3 +188,104 @@ class EscDuringScrollingTests(unittest.TestCase):
         win.stop_after = 1
         _, reason = capture_scrolling(win.grab, Rect(0, 0, W, VIEW_H), win, settle=lambda: None)
         self.assertEqual(reason, "stopped")
+
+
+class RealWorldScrollingTests(unittest.TestCase):
+    """Situations seen on real machines that the exact row match could not handle."""
+
+    def test_selector_overlay_still_visible_on_the_first_grab(self):
+        win = FakeScrollingWindow()
+        clock = {"t": 0.0}
+
+        def sleep(s):
+            clock["t"] += s
+
+        def grab(rect):
+            img = win.view()
+            if clock["t"] < 0.4:  # dimmed frozen desktop of the selector, gone a moment later
+                img = Image.eval(img, lambda v: v // 2)
+            return CapturedImage.from_pil(img)
+
+        image, reason = capture_scrolling(grab, Rect(0, 0, W, VIEW_H), win, sleep=sleep)
+        self.assertEqual(reason, "end")
+        self.assertEqual(image.height, HEADER + PAGE_H)
+
+    def test_hover_highlight_under_the_parked_cursor(self):
+        win = FakeScrollingWindow()
+
+        def grab(rect):
+            img = win.view()
+            d = ImageDraw.Draw(img)
+            mid = VIEW_H // 2
+            d.rectangle((0, mid - 12, W - SCROLLBAR - 1, mid + 12), fill=(200, 225, 255))  # row under the cursor
+            return CapturedImage.from_pil(img)
+
+        image, reason = capture_scrolling(grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None)
+        self.assertEqual(reason, "end")
+        self.assertGreaterEqual(image.height, HEADER + PAGE_H - 30)
+
+    def test_rendering_noise_after_each_scroll(self):
+        win = FakeScrollingWindow()
+
+        def grab(rect):
+            img = win.view()
+            # anti-aliasing / colour rounding differs slightly from frame to frame
+            k = win.scrolls % 3
+            img = Image.eval(img, lambda v: min(255, v + k) if v > 128 else max(0, v - k))
+            return CapturedImage.from_pil(img)
+
+        image, reason = capture_scrolling(grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None)
+        self.assertEqual(reason, "end")
+        self.assertEqual(image.height, HEADER + PAGE_H)
+
+    def test_unrelated_frames_still_stop(self):
+        win = FakeScrollingWindow()
+        other = Image.new("RGB", (W, VIEW_H), "white")
+        d = ImageDraw.Draw(other)
+        for y in range(0, VIEW_H, 7):
+            d.line((0, y, W, y), fill=((y * 37) % 255, (y * 11) % 255, 0))
+        calls = {"n": 0}
+
+        def grab(rect):
+            calls["n"] += 1
+            return CapturedImage.from_pil(win.view() if win.scrolls == 0 else other)
+
+        _, reason = capture_scrolling(grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None)
+        self.assertEqual(reason, "no_match")
+
+
+class ManualScrollingTests(unittest.TestCase):
+    def test_user_scrolls_and_presses_esc(self):
+        from screenpilot.capture.scrolling import capture_scrolling_manual
+
+        win = FakeScrollingWindow(step=90)
+        state = {"t": 0.0, "polls": 0}
+
+        def sleep(s):
+            state["t"] += s
+
+        def grab(rect):
+            state["polls"] += 1
+            if state["polls"] > 5 and state["polls"] % 2 == 0 and win.offset < win.max_offset:
+                win.scroll(rect, 1)  # the user turns the wheel now and then
+            return CapturedImage.from_pil(win.view())
+
+        win.stop_requested = lambda: win.offset >= win.max_offset and state["polls"] > 60
+        image, reason = capture_scrolling_manual(grab, Rect(0, 0, W, VIEW_H), win, sleep=sleep, clock=lambda: state["t"])
+        self.assertEqual(reason, "done")
+        self.assertEqual(image.height, HEADER + PAGE_H)
+
+    def test_nothing_scrolled(self):
+        from screenpilot.capture.scrolling import capture_scrolling_manual
+
+        win = FakeScrollingWindow()
+        state = {"n": 0}
+
+        def stop():
+            state["n"] += 1
+            return state["n"] > 3
+
+        win.stop_requested = stop
+        image, reason = capture_scrolling_manual(win.grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None, clock=lambda: 0.0)
+        self.assertEqual(reason, "end")
+        self.assertEqual(image.height, VIEW_H)

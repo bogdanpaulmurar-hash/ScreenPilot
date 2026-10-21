@@ -590,10 +590,15 @@ class AppController(QObject):
         self.hide_chrome()
         from screenpilot.ui.preview import ScrollIndicator
 
-        indicator = ScrollIndicator(self.app.translator, physical_to_logical(Point(rect.x, rect.bottom), self.app.capture.monitors()))
+        manual = options.setdefault("manual", self.app.settings.get("capture.scroll_mode") == "manual")
+        anchor = physical_to_logical(Point(rect.x, rect.bottom), self.app.capture.monitors())
+        indicator = ScrollIndicator(self.app.translator, anchor, manual=manual)
         self._scroll_indicator = indicator
         indicator.show_near()
-        options.setdefault("on_stop", self._ask_scroll)
+        if manual:
+            scroller.restore_cursor = lambda: None  # the user moved the mouse; leave it where it is
+        else:
+            options.setdefault("on_stop", self._ask_scroll)
 
         def run() -> None:
             try:

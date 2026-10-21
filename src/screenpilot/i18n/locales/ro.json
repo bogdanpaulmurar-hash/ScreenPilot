@@ -697,5 +697,11 @@
   "settings.rec.engine.windows": "Windows (încorporat)",
   "settings.rec.engine.ffmpeg": "FFmpeg",
   "settings.rec.windows_status.ok": "Encoderul H.264 încorporat în Windows este disponibil.",
-  "settings.rec.windows_status.missing": "Encoderul încorporat în Windows nu este disponibil: {reason}"
+  "settings.rec.windows_status.missing": "Encoderul încorporat în Windows nu este disponibil: {reason}",
+  "settings.scroll_mode": "Captură cu derulare",
+  "settings.scroll_mode.desc": "Automat: ScreenPilot derulează cu rotița pentru tine. Manual: derulezi tu (rotiță, taste sau bara de derulare), în ritmul tău; apasă Esc când ai terminat.",
+  "settings.scroll_mode.auto": "Automat (derulează ScreenPilot)",
+  "settings.scroll_mode.manual": "Manual (derulez eu, Esc la final)",
+  "scroll.manual.starting": "Derulează zona acum…  Esc când ai terminat",
+  "scroll.manual.progress": "Înregistrez derularea… {frames} cadre · {height} px  ·  Esc când ai terminat"
 }

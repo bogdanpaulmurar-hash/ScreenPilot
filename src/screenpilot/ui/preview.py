@@ -262,10 +262,11 @@ class QuickPreview(QWidget):
 class ScrollIndicator(QWidget):
     """Progress pill shown below the region while a scrolling capture runs."""
 
-    def __init__(self, translator: Translator, anchor: QPoint) -> None:
+    def __init__(self, translator: Translator, anchor: QPoint, *, manual: bool = False) -> None:
         super().__init__(None)
         self.t = translator.t
         self.anchor = anchor
+        self.manual = manual
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -276,11 +277,12 @@ class ScrollIndicator(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.text = self.t("scroll.starting")
+        self.text = self.t("scroll.manual.starting" if manual else "scroll.starting")
         self.setFixedHeight(40)
 
     def set_progress(self, frames: int, height: int) -> None:
-        self.text = self.t("scroll.progress", frames=frames, height=height)
+        key = "scroll.manual.progress" if self.manual else "scroll.progress"
+        self.text = self.t(key, frames=frames, height=height)
         self._fit()
         self.update()
 
