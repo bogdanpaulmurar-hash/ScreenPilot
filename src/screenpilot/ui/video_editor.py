@@ -682,7 +682,9 @@ class VideoEditorWindow(QWidget):
         QShortcut(QKeySequence("Ctrl+Y"), self, activated=self.redo)
         QShortcut(QKeySequence.StandardKey.Delete, self, activated=self.delete_selected)
         QShortcut(QKeySequence.StandardKey.Save, self, activated=self.export)
-        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=lambda: self.canvas.select(None))
+        from screenpilot.ui.qt_helpers import on_escape
+
+        on_escape(self, lambda: self.canvas.select(None) if self.canvas.selected is not None else self.close())
 
         self.canvas.changed.connect(self._project_changed)
         self.canvas.selection_changed.connect(self._on_selection)

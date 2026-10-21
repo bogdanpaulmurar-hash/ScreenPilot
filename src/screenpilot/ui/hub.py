@@ -173,6 +173,9 @@ class CaptureHub(QWidget):
         self.destroyed.connect(lambda *_: self._settings_unsub())
         on_theme_changed(self, lambda _t: self.update())
         self._refresh()
+        from screenpilot.ui.qt_helpers import on_escape
+
+        on_escape(self, self.close)  # Esc closes the window
 
     # -- options --------------------------------------------------------------
     def _set(self, key: str, value) -> None:

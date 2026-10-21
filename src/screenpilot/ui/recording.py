@@ -733,7 +733,9 @@ class RecordingController(QObject):
 
     def _error(self, exc: ScreenPilotError) -> None:
         log.warning("Recording error: %s", exc)
-        self.ctrl.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
+        body = self.t(exc.message_key, **getattr(exc, "params", {}))
+        # Clicking the message opens Settings › Recording (FFmpeg status and encoder choice).
+        self.ctrl.notify_action.emit(self.t("recording.failed.title"), body, True, lambda: self.ctrl.show_settings("recording"))
 
     def _teardown(self) -> None:
         self._timer.stop()

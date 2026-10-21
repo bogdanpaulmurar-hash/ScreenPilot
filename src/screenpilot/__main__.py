@@ -251,7 +251,9 @@ def _record_info(app) -> None:
     try:
         print(f"  Encoder chosen (auto): {info.choose_encoder('auto')}")
     except ScreenPilotError as exc:
-        print(f"  {t(exc.message_key)}")
+        print(f"  {t(exc.message_key, **exc.params)}")
+    for encoder, ok in info._verified.items():
+        print(f"    {encoder:<14} {'ok' if ok else 'FAILED: ' + info.errors.get(encoder, '?')}")
     devices = info.audio_devices()
     print(f"  {t('settings.rec.devices')}: {', '.join(devices) if devices else '-'}")
 

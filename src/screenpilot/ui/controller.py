@@ -35,7 +35,7 @@ from screenpilot.core.errors import ScreenPilotError
 from screenpilot.core.events import Event
 from screenpilot.hotkeys import RegistrationStatus
 from screenpilot.ui.countdown import CountdownOverlay
-from screenpilot.ui.qt_helpers import EventBridge, Retranslator
+from screenpilot.ui.qt_helpers import EventBridge, Retranslator, present
 from screenpilot.ui.region_selector import (
     ACTION_COLOR,
     ACTION_COPY,
@@ -694,7 +694,15 @@ class AppController(QObject):
             or self.recording.active
             or getattr(self, "interval", None) is not None
             or self._scroll_indicator is not None
+            or self._preview_visible()
         )
+
+    def _preview_visible(self) -> bool:
+        preview = self._preview
+        try:
+            return preview is not None and preview.isVisible()
+        except RuntimeError:  # deleted
+            return False
 
     def _poll_escape(self) -> None:
         if not self._escape_flow_active():
@@ -725,6 +733,9 @@ class AppController(QObject):
             self.stop_interval()
             self.notify.emit(self.t("interval.title"), self.t("interval.finished", done=count), False)
             done = "interval"
+        elif self._preview_visible():
+            self._preview.dismiss()  # back to the normal screen right away
+            done = "preview"
         else:
             done = "none"
         log.info("Esc: %s", done)
@@ -828,6 +839,7 @@ class AppController(QObject):
         preview.closed.connect(lambda: setattr(self, "_preview", None) if self._preview is preview else None)
         self._preview = preview
         preview.show_animated()
+        self.watch_escape()  # Esc dismisses it, wherever the keyboard focus is
         return preview
 
     def copy_result(self, result: CaptureResult) -> None:
@@ -878,9 +890,7 @@ class AppController(QObject):
         key = f"editor-{id(editor)}"
         self._windows[key] = editor
         editor.destroyed.connect(lambda *_: self._windows.pop(key, None))
-        editor.show()
-        editor.raise_()
-        editor.activateWindow()
+        present(editor)
         return editor
 
     def last_capture(self) -> CaptureResult | None:
@@ -978,8 +988,7 @@ class AppController(QObject):
             key = f"ocr-{id(window)}"
             self._windows[key] = window
             window.destroyed.connect(lambda *_: self._windows.pop(key, None))
-            window.show()
-            window.raise_()
+            present(window)
         elif window is None:
             self.notify.emit(self.t("ocr.title"), self.t("ocr.running"), False)
         if window is not None:
@@ -1035,9 +1044,7 @@ class AppController(QObject):
         )
         self._windows[f"steps-{id(editor)}"] = editor
         editor.destroyed.connect(lambda *_: self._windows.pop(f"steps-{id(editor)}", None))
-        editor.show()
-        editor.raise_()
-        editor.activateWindow()
+        present(editor)
         return editor
 
     def pin(self, result: CaptureResult) -> QWidget:
@@ -1048,7 +1055,7 @@ class AppController(QObject):
         self.pins.append(window)
         window.destroyed.connect(lambda *_: self.pins.remove(window) if window in self.pins else None)
         window.move(physical_to_logical(Point(result.region.x, result.region.y), self.app.capture.monitors()))
-        window.show()
+        present(window)  # Esc closes it right away
         return window
 
     def _on_event(self, event: Event) -> None:
@@ -1069,9 +1076,7 @@ class AppController(QObject):
             window = factory()
             window.destroyed.connect(lambda *_: self._windows.pop(key, None))
             self._windows[key] = window
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        present(window)
         return window
 
     def show_hub(self) -> QWidget:
@@ -1115,9 +1120,7 @@ class AppController(QObject):
         key = f"video:{Path(path).resolve()}"
         self._windows[key] = window
         window.destroyed.connect(lambda *_: self._windows.pop(key, None))
-        window.show()
-        window.raise_()
-        window.activateWindow()
+        present(window)
         return window
 
     def customize_edge_bar(self, parent: QWidget | None = None) -> QWidget:
@@ -1125,9 +1128,7 @@ class AppController(QObject):
         from screenpilot.ui.edge_bar_editor import EdgeBarEditor
 
         dialog = EdgeBarEditor(self.app, parent)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        present(dialog)
         self._windows["edge_bar_editor"] = dialog
         dialog.destroyed.connect(lambda *_: self._windows.pop("edge_bar_editor", None))
         return dialog

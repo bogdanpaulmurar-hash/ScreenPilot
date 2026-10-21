@@ -434,7 +434,7 @@
   "hub.mode.procedure": "Procedure",
   "hub.procedure.recording": "{count} steps",
   "error.recording": "The recording failed.",
-  "recording.error.no_encoder": "FFmpeg has no working video encoder. Try Settings › Recording › Encoder › Software.",
+  "recording.error.no_encoder": "FFmpeg could not encode a test video: {reason}. Click for Settings › Recording (Encoder › Software).",
   "recording.error.ffmpeg_broken": "FFmpeg could not be started. Check the FFmpeg path in Settings › Recording.",
   "recording.error.encoder_failed": "The video encoder stopped unexpectedly. Details are in the log (Export diagnostics).",
   "recording.error.gif": "The GIF conversion failed.",
@@ -682,5 +682,8 @@
   "edgebar.editor.hint": "Double-click to add or remove; drag to reorder. The first buttons are the ones on the left of the bar.",
   "edgebar.editor.reset": "Default buttons",
   "edgebar.editor.cancel": "Cancel",
-  "edgebar.editor.save": "Save"
+  "edgebar.editor.save": "Save",
+  "recording.failed.title": "Recording failed",
+  "editor.discard.title": "Close the editor",
+  "editor.discard.question": "Close without saving? Your annotations will be lost."
 }

@@ -32,7 +32,7 @@ from screenpilot.capture.geometry import Point, Rect
 from screenpilot.capture.image import CaptureResult, CapturedImage
 from screenpilot.editor import PALETTE, StepDocument, render_steps
 from screenpilot.i18n import Translator
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, on_escape, qimage_from_captured
 from screenpilot.ui.widgets import Chip, IconButton, label, theme
 
 log = logging.getLogger(__name__)
@@ -258,6 +258,7 @@ class StepEditor(QWidget):
         layout.addLayout(bottom)
 
         QShortcut(QKeySequence.StandardKey.Undo, self, activated=self.undo)
+        on_escape(self, self.escape)
         QShortcut(QKeySequence("Ctrl+Shift+Return"), self, activated=self.copy_and_close)
         self.canvas.changed.connect(self._update_count)
         self._update_count()
@@ -301,6 +302,14 @@ class StepEditor(QWidget):
             return None
         target = Path(path)
         return self.rendered().save(target, image_format=target.suffix.lstrip(".") or "png")
+
+    def escape(self) -> None:
+        """Esc closes Number steps (asking first when steps were placed)."""
+        from screenpilot.ui.editor_window import confirm_discard
+
+        if self.doc.steps and not confirm_discard(self, self.t):
+            return
+        self.close()
 
     def copy_and_close(self) -> None:
         """Copy the numbered image to the clipboard and close (nothing is saved)."""

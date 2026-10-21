@@ -434,7 +434,7 @@
   "hub.mode.procedure": "Procedură",
   "hub.procedure.recording": "{count} pași",
   "error.recording": "Înregistrarea a eșuat.",
-  "recording.error.no_encoder": "FFmpeg nu are niciun encoder video funcțional. Încearcă Setări › Înregistrare › Encoder › Procesor.",
+  "recording.error.no_encoder": "FFmpeg nu a putut codifica un video de test: {reason}. Click pentru Setări › Înregistrare (Encoder › Software).",
   "recording.error.ffmpeg_broken": "FFmpeg nu a putut porni. Verifică calea FFmpeg în Setări › Înregistrare.",
   "recording.error.encoder_failed": "Encoderul video s-a oprit neașteptat. Detaliile sunt în jurnal (Exportă diagnosticul).",
   "recording.error.gif": "Conversia în GIF a eșuat.",
@@ -682,5 +682,8 @@
   "edgebar.editor.hint": "Dublu-click ca să adaugi sau să scoți; trage ca să schimbi ordinea. Primele butoane sunt cele din stânga barei.",
   "edgebar.editor.reset": "Butoanele implicite",
   "edgebar.editor.cancel": "Anulează",
-  "edgebar.editor.save": "Salvează"
+  "edgebar.editor.save": "Salvează",
+  "recording.failed.title": "Înregistrarea nu a pornit",
+  "editor.discard.title": "Închide editorul",
+  "editor.discard.question": "Închizi fără să salvezi? Adnotările se pierd."
 }

@@ -98,6 +98,9 @@ class HistoryWindow(QWidget):
         self.list.currentItemChanged.connect(lambda *_: self._update_buttons())
         rt.on_change(self.refresh)
         self.refresh()
+        from screenpilot.ui.qt_helpers import on_escape
+
+        on_escape(self, self.close)  # Esc closes the window
 
     # -- data -----------------------------------------------------------------
     def _on_event(self, event: Event) -> None:

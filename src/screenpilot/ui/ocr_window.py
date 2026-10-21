@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from screenpilot.capture.image import CaptureResult
 from screenpilot.i18n import Translator
 from screenpilot.ocr import OcrResult, to_markdown
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, on_escape, qimage_from_captured
 from screenpilot.ui.widgets import Chip, label, theme
 
 log = logging.getLogger(__name__)
@@ -158,6 +158,8 @@ class OcrWindow(QWidget):
         layout.addLayout(bottom)
         rt.on_change(self._retranslate)
         self._retranslate()
+
+        on_escape(self, self.close)  # Esc: back to work
 
     def _retranslate(self) -> None:
         for i in range(self.language.count()):

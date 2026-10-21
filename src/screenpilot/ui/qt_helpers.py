@@ -136,3 +136,33 @@ def sharp_thumbnail(pixmap: QPixmap, size, dpr: float) -> QPixmap:
     thumb = pixmap.scaled(physical, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     thumb.setDevicePixelRatio(dpr)
     return thumb
+
+
+def present(window) -> None:
+    """Show a window in front *with keyboard focus* (so Esc and shortcuts reach it).
+
+    Windows refuses the foreground to a process that was not the last one the
+    user interacted with; after a global hotkey and a background capture the
+    new window would otherwise open behind the active app or without focus.
+    """
+    window.show()
+    window.raise_()
+    window.activateWindow()
+    try:
+        from PySide6.QtCore import QTimer
+
+        from screenpilot.platform.win32_window import force_foreground
+
+        QTimer.singleShot(0, lambda: force_foreground(int(window.winId())) if window.isVisible() else None)
+    except RuntimeError:  # the window was deleted meanwhile
+        pass
+
+
+def on_escape(window, handler) -> None:
+    """Esc anywhere in ``window`` (even while a child widget has focus) calls ``handler``."""
+    from PySide6.QtGui import QKeySequence, QShortcut
+
+    shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), window)
+    shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+    shortcut.activated.connect(handler)
+    return shortcut

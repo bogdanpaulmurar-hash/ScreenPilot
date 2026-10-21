@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 HARDWARE_ENCODERS = ("h264_nvenc", "h264_qsv", "h264_amf", "h264_mf")
 SOFTWARE_ENCODERS = ("libx264", "libopenh264", "mpeg4")
 PROBE_TIMEOUT = 15
+SLOW_PROBE_TIMEOUT = 90
 FINISH_TIMEOUT = 60
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
@@ -208,8 +209,9 @@ class FfmpegInfo:
     version: str
     encoders: set[str] = field(default_factory=set)
     _verified: dict[str, bool] = field(default_factory=dict)
+    errors: dict[str, str] = field(default_factory=dict)  # encoder -> why its test encode failed
 
-    def works(self, encoder: str, runner: Runner = _run) -> bool:
+    def works(self, encoder: str, runner: Runner = _run, *, timeout: float = PROBE_TIMEOUT) -> bool:
         """Run a tiny test encode; results are cached per process."""
         if encoder not in self._verified:
             # Same encoder options as a real recording: e.g. h264_mf only fails
@@ -220,11 +222,22 @@ class FfmpegInfo:
                 *encoder_args(encoder, 23, 10, 320, 240), "-f", "null", "-",
             ]
             try:
-                ok = runner(args, timeout=PROBE_TIMEOUT).returncode == 0
-            except (OSError, subprocess.SubprocessError) as exc:
-                log.info("Encoder probe %s failed: %s", encoder, exc)
+                proc = runner(args, timeout=timeout)
+                ok = proc.returncode == 0
+                if not ok:
+                    lines = [l for l in (proc.stderr or "").splitlines() if l.strip()]
+                    self.errors[encoder] = (lines[-1] if lines else f"exit code {proc.returncode}")[:300]
+            except subprocess.TimeoutExpired:
                 ok = False
-            log.info("Encoder %s %s", encoder, "works" if ok else "is not usable")
+                self.errors[encoder] = f"no answer within {timeout:.0f} s"
+            except (OSError, subprocess.SubprocessError) as exc:
+                ok = False
+                self.errors[encoder] = str(exc)[:300]
+            if ok:
+                self.errors.pop(encoder, None)
+                log.info("Encoder %s works", encoder)
+            else:
+                log.warning("Encoder %s is not usable: %s", encoder, self.errors.get(encoder, "?"))
             self._verified[encoder] = ok
         return self._verified[encoder]
 
@@ -235,12 +248,24 @@ class FfmpegInfo:
 
     def choose_encoder(self, mode: str = "auto", runner: Runner = _run) -> str:
         hardware = [e for e in HARDWARE_ENCODERS if e in self.encoders]
-        software = [e for e in SOFTWARE_ENCODERS if e in self.encoders]
+        # Software encoders are tried even when the encoder list could not be read.
+        software = [e for e in SOFTWARE_ENCODERS if e in self.encoders] or list(SOFTWARE_ENCODERS)
         order = {"hardware": hardware + software, "software": software + hardware}.get(mode, hardware + software)
         for encoder in order:
             if self.works(encoder, runner):
                 return encoder
-        raise RecordingError("No working video encoder found in ffmpeg", message_key="recording.error.no_encoder")
+        # A freshly downloaded ffmpeg.exe can be held for a long time by the antivirus on its
+        # first starts: give the software encoders one more, patient try.
+        for encoder in software:
+            if "no answer" in self.errors.get(encoder, ""):
+                self._verified.pop(encoder, None)
+                if self.works(encoder, runner, timeout=SLOW_PROBE_TIMEOUT):
+                    return encoder
+        reason = next((self.errors[e] for e in software + hardware if e in self.errors), "")
+        raise RecordingError(
+            f"No working video encoder found in ffmpeg {self.path}: {reason}",
+            message_key="recording.error.no_encoder", reason=reason or "?", path=str(self.path),
+        )
 
     def audio_devices(self, runner: Runner = _run) -> list[str]:
         if sys.platform != "win32":

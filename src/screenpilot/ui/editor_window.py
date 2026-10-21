@@ -38,7 +38,7 @@ from screenpilot.capture.image import CapturedImage, CaptureResult
 from screenpilot.editor.document import COLORS, EditorDocument, Shape, render
 from screenpilot.i18n import Translator
 from screenpilot.ui import icons
-from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, qimage_from_captured
+from screenpilot.ui.qt_helpers import Retranslator, app_icon, fit_target, on_escape, qimage_from_captured
 from screenpilot.ui.widgets import Chip, label, on_theme_changed, theme
 
 log = logging.getLogger(__name__)
@@ -319,6 +319,16 @@ class EditorCanvas(QWidget):
         p.end()
 
 
+def confirm_discard(parent, t) -> bool:
+    from PySide6.QtWidgets import QMessageBox
+
+    answer = QMessageBox.question(
+        parent, t("editor.discard.title"), t("editor.discard.question"),
+        QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel,
+    )
+    return answer == QMessageBox.StandardButton.Discard
+
+
 def _constrain(a: Point, b: Point, kind: str) -> Point:
     dx, dy = b.x - a.x, b.y - a.y
     if kind in ("line", "arrow"):  # 45° steps
@@ -485,7 +495,7 @@ class EditorWindow(QWidget):
         QShortcut(QKeySequence.StandardKey.Save, self, activated=self.save_as)
         QShortcut(QKeySequence("Ctrl+Shift+Return"), self, activated=self.copy_and_close)
         QShortcut(QKeySequence(Qt.Key.Key_Return), self, activated=self.done)
-        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=lambda: self.canvas.select(None))
+        on_escape(self, self.escape)
         self.canvas.selection_changed.connect(self._on_selection)
         self.canvas.changed.connect(self._update_hint)
         on_theme_changed(self, self._restyle)
@@ -629,6 +639,15 @@ class EditorWindow(QWidget):
         self.close()
         if self.on_copy_close is not None:
             self.on_copy_close(result)
+
+    def escape(self) -> None:
+        """Esc: drop the selection first; then close (asking when there are annotations)."""
+        if self.canvas.selected is not None:
+            self.canvas.select(None)
+            return
+        if (self.doc.shapes or self.doc.crop is not None) and not confirm_discard(self, self.t):
+            return
+        self.close()
 
     def done(self) -> None:
         result = self.edited_result()

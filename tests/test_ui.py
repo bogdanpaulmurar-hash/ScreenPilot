@@ -1112,6 +1112,25 @@ class RecordingUiTests(UiTestCase):
         self.app.translator.set_language("en")
         bar.close()
 
+    def test_escape_closes_windows_opened_by_a_capture(self):
+        result = self.app.capture.capture_region(Rect(self.screen_rect.x, self.screen_rect.y, 200, 120))
+        editor = self.controller.open_editor(result)
+        QTest.qWaitForWindowExposed(editor)
+        QTest.keyClick(editor, Qt.Key.Key_Escape)  # nothing drawn: closes at once
+        self.assertTrue(wait_until(lambda: not editor.isVisible()))
+        steps = self.controller.open_steps(result)
+        QTest.qWaitForWindowExposed(steps)
+        QTest.keyClick(steps, Qt.Key.Key_Escape)
+        self.assertTrue(wait_until(lambda: not steps.isVisible()))
+        hub = self.controller.show_hub()
+        QTest.qWaitForWindowExposed(hub)
+        QTest.keyClick(hub, Qt.Key.Key_Escape)
+        self.assertTrue(wait_until(lambda: not hub.isVisible()))
+        self.app.settings.set("capture.show_preview", True)
+        preview = self.controller.show_preview(result, None)
+        self.assertTrue(preview.isVisible())
+        self.assertEqual(self.controller.escape_pressed(), "preview")
+
     def test_version_is_visible(self):
         from screenpilot import __version__
 

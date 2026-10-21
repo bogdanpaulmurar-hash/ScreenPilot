@@ -162,6 +162,28 @@ class FfmpegParsingTests(unittest.TestCase):
         self.assertIn("[0:v]scale=out_color_matrix=bt709", " ".join(silent))  # colour conversion also without audio
         self.assertEqual((even(641), even(640), even(1)), (640, 640, 2))
 
+    def test_encoder_failure_reason_and_patient_retry(self):
+        info = FfmpegInfo(Path("ffmpeg"), "8.0", set())  # encoder list could not be read
+        attempts = []
+
+        def runner(args, timeout=0):
+            encoder = args[args.index("-c:v") + 1]
+            attempts.append((encoder, timeout))
+            if encoder == "libx264" and timeout < 60:
+                raise subprocess.TimeoutExpired(args, timeout)  # first start held by the antivirus
+            if encoder == "libx264":
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return subprocess.CompletedProcess(args, 1, "", "Unknown encoder\nConversion failed!")
+
+        self.assertEqual(info.choose_encoder("auto", runner), "libx264")  # software tried although not listed
+        self.assertEqual(attempts[-1], ("libx264", 90))
+        self.assertEqual(info.errors["mpeg4"], "Conversion failed!")
+
+        broken = FfmpegInfo(Path("ffmpeg"), "8.0", {"libx264"})
+        with self.assertRaises(RecordingError) as caught:
+            broken.choose_encoder("auto", lambda args, timeout=0: subprocess.CompletedProcess(args, 1, "", "Error: access denied"))
+        self.assertIn("access denied", caught.exception.params["reason"])
+
     def test_encoder_choice_skips_listed_but_broken_hardware(self):
         info = FfmpegInfo(Path("ffmpeg"), "7.0", {"h264_nvenc", "h264_mf", "libx264"})
         calls = []
