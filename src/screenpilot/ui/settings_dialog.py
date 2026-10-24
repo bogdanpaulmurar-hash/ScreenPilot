@@ -351,6 +351,14 @@ class SettingsDialog(QDialog):
             )
         )
         column.addWidget(
+            self._row(
+                "copy", "settings.multi_clipboard", "settings.multi_clipboard.desc",
+                self._combo(
+                    "capture.multi_clipboard", [("", "sequence"), ("", "combined")], tr_prefix="settings.multi_clipboard"
+                ),
+            )
+        )
+        column.addWidget(
             self._row("check", "settings.action_bar", "settings.action_bar.desc", self._toggle("selector.action_bar"))
         )
 

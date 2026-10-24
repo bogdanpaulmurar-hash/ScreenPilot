@@ -1536,3 +1536,15 @@ class MultiCaptureUiTests(UiTestCase):
         editor.done()
         self.assertTrue(wait_until(lambda: self.captured))
         self.assertEqual((self.captured[0][0].image.width, self.captured[0][0].image.height), (120, 212))
+
+    def test_clipboard_choice_in_settings(self):
+        from PySide6.QtWidgets import QComboBox
+
+        dialog = self.controller.show_settings("capture")
+        QApplication.processEvents()
+        combos = [c for c in dialog.findChildren(QComboBox) if c.findData("combined") >= 0]
+        self.assertEqual(len(combos), 1)
+        self.assertEqual(combos[0].currentData(), "sequence")
+        combos[0].setCurrentIndex(combos[0].findData("combined"))
+        self.assertEqual(self.app.settings.get("capture.multi_clipboard"), "combined")
+        dialog.close()
