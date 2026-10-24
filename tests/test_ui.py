@@ -1380,7 +1380,14 @@ class EditorV2Tests(UiTestCase):
         self.assertIsNotNone(editor.on_copy_close)
         editor.close()
         window.close()
-        self.controller.cancel_procedure()
+        from unittest import mock
+
+        from PySide6.QtWidgets import QMessageBox
+
+        # the session has a step, so cancelling asks first: answer Yes instead of blocking on the dialog
+        with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            self.controller.cancel_procedure()
+        self.assertIsNone(self.controller.procedure)
 
 
 class HubEditorTests(UiTestCase):
