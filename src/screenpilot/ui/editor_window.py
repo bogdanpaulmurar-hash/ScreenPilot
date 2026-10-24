@@ -1221,6 +1221,27 @@ class EditorWindow(QWidget):
             self.canvas.setFocus()
         return indexes
 
+    def attach_below(self, images: list[CapturedImage], gap: int = 16) -> list[int]:
+        """Pictures at their real size, one below the other under the capture (multi-capture).
+
+        The capture stays the fixed background; each picture can be moved, resized or deleted."""
+        from screenpilot.capture.image import stack_offsets
+
+        top = self.canvas.image.height + gap
+        indexes = []
+        style = dict(color=self.canvas.color, width=max(2, self.canvas.width_px // 2))
+        for image, offset in zip(images, stack_offsets([i.height for i in images], gap)):
+            w, h = image.width, image.height
+            at = Point(w // 2, top + offset + h // 2)
+            indexes.append(self.doc.add_image(image, at, max_size=(w, h), **style))
+        if indexes:
+            self.set_tool("select")
+            self.canvas.select(indexes[-1])
+            self.canvas.refresh()
+            self.canvas.fit_view()
+            self.canvas.setFocus()
+        return indexes
+
     def insert_picture_file(self, path: str | Path) -> int | None:
         try:
             picture = load_picture(path)

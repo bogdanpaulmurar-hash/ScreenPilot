@@ -1420,3 +1420,119 @@ class HubEditorTests(UiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultiCaptureUiTests(UiTestCase):
+    """Ctrl held in the selector: several areas, then clipboard (one by one or one image) or the editor."""
+
+    CTRL = Qt.KeyboardModifier.ControlModifier
+
+    def setUp(self):
+        super().setUp()
+        self.controller._frame_provider = lambda frozen: (lambda point, window: [])  # drags only, no snapping races
+        self.copies = []
+        clipboard = self.app.clipboard
+
+        def record(image):
+            self.copies.append(image)
+            clipboard.image = image
+
+        clipboard.set_image = record
+
+    def r(self, x, y, w, h) -> Rect:
+        return Rect(self.screen_rect.x + x, self.screen_rect.y + y, w, h)
+
+    def ctrl_select(self, overlay, a: QPoint, b: QPoint) -> None:
+        QTest.mouseMove(overlay, a)
+        QTest.mousePress(overlay, Qt.MouseButton.LeftButton, self.CTRL, a)
+        QTest.mouseMove(overlay, b)
+        QTest.mouseRelease(overlay, Qt.MouseButton.LeftButton, self.CTRL, b)
+
+    def collect_two(self, overlay) -> None:
+        self.ctrl_select(overlay, QPoint(50, 40), QPoint(149, 99))  # 100 × 60
+        self.ctrl_select(overlay, QPoint(300, 200), QPoint(419, 279))  # 120 × 80
+
+    def test_ctrl_collects_regions_backspace_right_click_and_escape(self):
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        self.assertEqual(list(overlay.regions), [self.r(50, 40, 100, 60), self.r(300, 200, 120, 80)])
+        self.assertIsNone(overlay.model.selection)
+        self.assertTrue(self.controller.selector.active)
+        bar = overlay.action_bar
+        self.assertTrue(bar.isVisible())
+        self.assertTrue(bar.multi)
+        self.assertTrue(bar.buttons["pin"].isHidden())
+        self.assertFalse(bar.buttons["edit"].isHidden())
+        shot(overlay, "70_selector_multi")
+        QTest.keyClick(overlay, Qt.Key.Key_Backspace)
+        self.assertEqual(list(overlay.regions), [self.r(50, 40, 100, 60)])
+        self.ctrl_select(overlay, QPoint(300, 200), QPoint(419, 279))
+        QTest.mouseClick(overlay, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, QPoint(80, 60))
+        self.assertEqual(list(overlay.regions), [self.r(300, 200, 120, 80)])
+        QTest.mouseClick(overlay, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, QPoint(700, 500))
+        self.assertTrue(self.controller.selector.active)  # with collected areas only Esc cancels
+        QTest.keyClick(overlay, Qt.Key.Key_Escape)
+        QApplication.processEvents()
+        self.assertFalse(self.controller.selector.active)
+        self.assertEqual(self.copies, [])
+        self.assertEqual(self.app.history.entries(), [])
+
+    def test_enter_captures_all_one_by_one_and_saves_each(self):
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        self.select(overlay, QPoint(500, 300), QPoint(589, 349))  # the current selection joins too: 90 × 50
+        self.assertTrue(overlay.action_bar.multi)
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertFalse(self.controller.selector.active)
+        self.assertTrue(wait_until(lambda: len(self.copies) == 3, timeout=5))
+        self.assertEqual([(i.width, i.height) for i in self.copies], [(100, 60), (120, 80), (90, 50)])
+        self.assertTrue(wait_until(lambda: len(self.app.history.entries()) == 3, timeout=5))
+        self.assertTrue(wait_until(lambda: any(n[0] == "3 captures copied" for n in self.notes)))
+        QTest.qWait(600)
+        self.assertEqual(len(self.copies), 3)  # the after-capture actions did not copy again
+        self.assertEqual(self.controller.last_result.region, self.r(500, 300, 90, 50))
+
+    def test_copy_as_one_image_without_history(self):
+        self.app.settings.set("capture.multi_clipboard", "combined")
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        QTest.keyClick(overlay, Qt.Key.Key_C, self.CTRL)
+        self.assertTrue(wait_until(lambda: self.copies))
+        image = self.copies[0]
+        self.assertEqual((image.width, image.height), (120, 60 + 16 + 80))
+        QTest.qWait(200)
+        self.assertEqual(len(self.copies), 1)
+        self.assertEqual(self.app.history.entries(), [])
+        self.assertTrue(any(n[0] == "2 captures copied" for n in self.notes))
+
+    def test_single_region_actions_are_ignored_with_several_areas(self):
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        QTest.keyClick(overlay, Qt.Key.Key_P)
+        self.assertTrue(self.controller.selector.active)
+        self.assertEqual(self.controller.pins, [])
+        QTest.keyClick(overlay, Qt.Key.Key_Escape)
+
+    def test_edit_opens_the_editor_with_the_first_capture_as_background(self):
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        self.ctrl_select(overlay, QPoint(600, 100), QPoint(679, 139))  # 80 × 40
+        QTest.keyClick(overlay, Qt.Key.Key_E)
+        editors = [w for k, w in self.controller._windows.items() if k.startswith("editor-")]
+        self.assertEqual(len(editors), 1)
+        editor = editors[0]
+        QTest.qWaitForWindowExposed(editor)
+        self.assertEqual((editor.canvas.image.width, editor.canvas.image.height), (100, 60))
+        shapes = editor.doc.shapes
+        self.assertEqual([s.kind for s in shapes], ["image", "image"])
+        self.assertEqual((shapes[0].p1, shapes[0].p2), (Point(0, 76), Point(119, 155)))  # real size, below the capture
+        self.assertEqual((shapes[1].p1, shapes[1].p2), (Point(0, 172), Point(79, 211)))
+        self.assertEqual(editor.canvas.selected, 1)
+        self.assertEqual(editor.doc.extent(), Rect(0, 0, 120, 212))
+        shot(editor, "71_editor_multi")
+        editor.canvas.nudge_selected(30, 0)  # the pictures stay movable
+        self.assertEqual(editor.doc.shapes[1].p1, Point(30, 172))
+        self.assertEqual(self.copies, [])
+        editor.done()
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertEqual((self.captured[0][0].image.width, self.captured[0][0].image.height), (120, 212))
