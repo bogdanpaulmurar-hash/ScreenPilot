@@ -1425,7 +1425,9 @@ if __name__ == "__main__":
 class MultiCaptureUiTests(UiTestCase):
     """Ctrl held in the selector: several areas, then clipboard (one by one or one image) or the editor."""
 
-    CTRL = Qt.KeyboardModifier.ControlModifier
+    @property
+    def CTRL(self):  # noqa: N802 - Qt is missing on headless CI, so not a class attribute
+        return Qt.KeyboardModifier.ControlModifier
 
     def setUp(self):
         super().setUp()
