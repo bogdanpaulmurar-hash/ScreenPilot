@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import faulthandler
 import os
-import sys
 import threading
 
 import pytest
@@ -24,21 +23,15 @@ def _hang_watchdog(request):
         yield
         return
     finished = threading.Event()
-    capman = request.config.pluginmanager.getplugin("capturemanager")
 
     def watch() -> None:
         if finished.wait(TIMEOUT):
             return
-        try:
-            if capman is not None:
-                capman.suspend_global_capture(in_=True)
-        except Exception:  # noqa: BLE001 - best effort, we are about to exit
-            pass
-        sys.stderr.write(f"\n[watchdog] {request.node.nodeid} still running after {TIMEOUT:.0f} s\n")
-        sys.stderr.flush()
-        faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
-        sys.stderr.flush()
-        sys.stdout.flush()
+        path = os.environ.get("SCREENPILOT_WATCHDOG_LOG", "watchdog.log")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f"[watchdog] {request.node.nodeid} still running after {TIMEOUT:.0f} s\n")
+            fh.flush()
+            faulthandler.dump_traceback(file=fh, all_threads=True)
         os._exit(3)
 
     threading.Thread(target=watch, name="test-watchdog", daemon=True).start()
