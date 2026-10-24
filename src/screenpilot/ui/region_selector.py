@@ -7,6 +7,12 @@ physical pixels, paints, and shows a floating action bar next to the
 selection (capture, copy only, save as, pin, edit, OCR, cancel) — the
 destination is chosen in the same gesture, no extra dialog.
 
+Multi-capture: with Ctrl held when the mouse is released, the selection is
+added to a shared :class:`RegionList` and the next one can be drawn right
+away, on any monitor. Collected regions stay lit and numbered; Backspace or
+Ctrl+Z drops the last one, a right-click drops the one under the cursor,
+Enter confirms them all (plus the current selection), Esc cancels everything.
+
 Why one overlay per monitor: on mixed-DPI setups a single window spanning
 monitors gets rescaled by Windows; per-monitor overlays stay pixel exact.
 A selection is therefore limited to one monitor (use "All screens" for
@@ -43,7 +49,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QToolButton, QWidget
 
 from screenpilot.capture.geometry import Monitor, Point, Rect, WindowInfo
 from screenpilot.capture.image import CaptureResult
-from screenpilot.capture.selection import SelectionModel, State
+from screenpilot.capture.selection import RegionList, SelectionModel, State
 from screenpilot.i18n import Translator
 from screenpilot.ui import icons
 from screenpilot.ui.qt_helpers import qimage_from_captured
@@ -75,6 +81,9 @@ ACTION_MEASURE = "measure"
 ACTION_INTERVAL = "interval"
 ACTION_RECORD = "record"
 ACTION_RECORD_GIF = "record_gif"
+
+# What a confirmation of several regions can do (the other actions need one region).
+MULTI_ACTIONS = (ACTION_DEFAULT, ACTION_COPY, ACTION_EDIT)
 
 HANDLE_CURSORS = {
     "nw": Qt.CursorShape.SizeFDiagCursor,
@@ -109,6 +118,7 @@ class SelectorStyle:
     pick_color: bool = False  # colour picker: a click picks the pixel, no selection
     measure: bool = False  # ruler: size pill shows the diagonal, no action bar
     action_bar: bool = True  # False: the selection is captured as soon as the mouse is released
+    multi: bool = True  # Ctrl + release collects several regions (off for scroll, record...)
 
 
 def match_screens(monitors: Sequence[Monitor], screens: Sequence[QScreen]) -> list[tuple[Monitor, QScreen]]:
@@ -202,13 +212,24 @@ class ActionBar(QFrame):
                 row.addWidget(sep)
             row.addWidget(button)
             self.buttons[action or icon_name] = button
+        self.multi = False
+        self.adjustSize()
+
+    def set_multi(self, multi: bool) -> None:
+        """Several regions: only the actions that make sense for all of them."""
+        if multi == self.multi:
+            return
+        self.multi = multi
+        for action, button in self.buttons.items():
+            button.setVisible(not multi or action in MULTI_ACTIONS or action == "cancel")
         self.adjustSize()
 
 
 class MonitorOverlay(QWidget):
-    pressed = Signal(object)  # self, when a new interaction starts here
-    confirmed = Signal(object, str)  # Rect, action
+    pressed = Signal(object, bool)  # self, Ctrl held — when a new interaction starts here
+    confirmed = Signal(object, str)  # Rect, or list[Rect] for several regions; action
     cancelled = Signal()
+    regions_changed = Signal()
 
     def __init__(
         self,
@@ -220,9 +241,11 @@ class MonitorOverlay(QWidget):
         translator: Translator,
         frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
         style: SelectorStyle | None = None,
+        regions: RegionList | None = None,
     ) -> None:
         super().__init__(None)
         self.style = style or SelectorStyle()
+        self.regions = regions if regions is not None else RegionList()  # shared by all monitors
         self.monitor = monitor
         self.translator = translator
         self.model = SelectionModel(
@@ -281,11 +304,29 @@ class MonitorOverlay(QWidget):
         self._hovering = hovering
         self.update()
 
-    def release_selection(self) -> None:
-        """Another monitor started a selection: drop ours."""
+    @property
+    def multi_enabled(self) -> bool:
+        return self.style.multi and not self.style.pick_color and not self.style.measure
+
+    def release_selection(self, keep: bool = False) -> None:
+        """Another monitor started a selection: drop ours (``keep``: add it to the regions first)."""
         if self.model.state is not State.IDLE:
+            if keep and self.multi_enabled:
+                self.regions.add(self.model.result())
             self.model.reset()
             self._changed()
+
+    def _collect(self) -> None:
+        """Ctrl + release: the selection joins the regions and the next one can start."""
+        if self.regions.add(self.model.result()):
+            self.model.reset()
+            self.regions_changed.emit()
+        self._changed()
+
+    def _local_regions(self) -> list[tuple[int, Rect]]:
+        """(number, region) of the collected regions on this monitor."""
+        b = self.monitor.bounds
+        return [(i + 1, r) for i, r in enumerate(self.regions) if not r.intersect(b).is_empty]
 
     def _changed(self) -> None:
         self._place_action_bar()
@@ -293,10 +334,16 @@ class MonitorOverlay(QWidget):
 
     def _place_action_bar(self) -> None:
         snap = self.model.snapshot()
-        if snap.state is not State.ADJUSTING or snap.selection is None or self.style.measure or not self.style.action_bar:
+        anchor = snap.selection if snap.state is State.ADJUSTING else None
+        if anchor is None and snap.state is State.IDLE and len(self.regions):
+            last = list(self.regions)[-1]
+            if not last.intersect(self.monitor.bounds).is_empty:
+                anchor = last  # several regions, none being drawn: the bar sits by the last one
+        if anchor is None or self.style.measure or not self.style.action_bar:
             self.action_bar.hide()
             return
-        sel = self.to_logical(snap.selection)
+        self.action_bar.set_multi(len(self.regions.final(snap.selection)) > 1)
+        sel = self.to_logical(anchor)
         bar = self.action_bar.sizeHint()
         x = min(max(4.0, sel.right() - bar.width()), self.width() - bar.width() - 4.0)
         y = sel.bottom() + BAR_GAP
@@ -312,18 +359,29 @@ class MonitorOverlay(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         p = self.to_physical(event.position())
         if event.button() == Qt.MouseButton.RightButton:
-            if self.model.selection is not None:
+            if self.model.selection is not None and self.model.selection.contains(p):
                 self.model.reset()
                 self._changed()
-            else:
-                self.cancelled.emit()
+            elif self.regions.remove_at(p) is not None:
+                self.regions_changed.emit()
+            elif self.model.selection is not None:
+                self.model.reset()
+                self._changed()
+            elif not len(self.regions):
+                self.cancelled.emit()  # with collected regions only Esc cancels, so they are not lost by accident
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
         if self.style.pick_color:
             self.confirmed.emit(Rect(p.x, p.y, 1, 1), ACTION_COLOR)
             return
-        self.pressed.emit(self)
+        ctrl = self.multi_enabled and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        self.pressed.emit(self, ctrl)
+        if ctrl and self.model.state is State.ADJUSTING:
+            # Ctrl always starts a new region: the current selection is kept, not moved
+            self.regions.add(self.model.result())
+            self.model.reset()
+            self.regions_changed.emit()
         self.model.press(p)
         self._changed()
 
@@ -341,6 +399,10 @@ class MonitorOverlay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             new_selection = self.model.state is State.DRAGGING
             self.model.release(self.to_physical(event.position()))
+            ctrl = self.multi_enabled and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            if new_selection and ctrl and self.model.state is State.ADJUSTING:
+                self._collect()
+                return
             self._changed()
             if new_selection and not self.style.action_bar and self.model.state is State.ADJUSTING:
                 self._confirm(ACTION_DEFAULT)  # no action bar: the mode's Enter action, right away
@@ -355,6 +417,9 @@ class MonitorOverlay(QWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            if self.multi_enabled and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.mousePressEvent(event)  # quick Ctrl+clicks on windows: each one is a region
+                return
             self._confirm(ACTION_DEFAULT)
 
     def enterEvent(self, event) -> None:  # noqa: N802
@@ -411,8 +476,11 @@ class MonitorOverlay(QWidget):
         elif key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab) and self.model.state is State.IDLE:
             self.model.cycle(-1 if key == Qt.Key.Key_Backtab else 1)
             self.update()
+        elif key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete) or (key == Qt.Key.Key_Z and ctrl):
+            if self.regions.pop() is not None:
+                self.regions_changed.emit()
         elif key == Qt.Key.Key_A and ctrl:
-            self.pressed.emit(self)
+            self.pressed.emit(self, False)
             self.model.select_all()
             self._changed()
         else:
@@ -425,9 +493,16 @@ class MonitorOverlay(QWidget):
             return
         if self.style.measure and action == ACTION_DEFAULT:
             action = ACTION_MEASURE
-        rect = self.model.result() or self.model.hover_rect()
-        if rect is not None and not rect.is_empty:
-            self.confirmed.emit(rect, action)
+        current = self.model.result()
+        if not len(self.regions):
+            current = current or self.model.hover_rect()
+        rects = self.regions.final(current)
+        if len(rects) > 1:
+            if action in MULTI_ACTIONS:
+                self.confirmed.emit(rects, action)
+            return  # pin, OCR, scroll... need a single region
+        if rects:
+            self.confirmed.emit(rects[0], action)
 
     # -- painting -------------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
@@ -438,13 +513,25 @@ class MonitorOverlay(QWidget):
         focus = snap.selection or (snap.hover if self._hovering else None)
 
         full = QRectF(self.rect())
-        if focus is not None:
-            hole = self.to_logical(focus)
+        collected = self._local_regions()
+        if collected:
             dim = QPainterPath()
             dim.addRect(full)
             cut = QPainterPath()
-            cut.addRect(hole)
-            p.fillPath(dim.subtracted(cut), self._dim)
+            for _n, r in collected:
+                cut.addRect(self.to_logical(r))
+            if focus is not None:
+                cut.addRect(self.to_logical(focus))
+            p.fillPath(dim.subtracted(cut.simplified()), self._dim)
+            self._paint_collected(p, collected)
+        if focus is not None:
+            hole = self.to_logical(focus)
+            if not collected:
+                dim = QPainterPath()
+                dim.addRect(full)
+                cut = QPainterPath()
+                cut.addRect(hole)
+                p.fillPath(dim.subtracted(cut), self._dim)
             # Two-tone outline: readable on light and dark content alike.
             p.setBrush(Qt.BrushStyle.NoBrush)
             width = max(1, self.style.thickness)
@@ -455,16 +542,45 @@ class MonitorOverlay(QWidget):
             self._paint_size_pill(p, focus, hole, is_window=snap.selection is None)
             if snap.selection is not None and snap.state is not State.DRAGGING:
                 self._paint_handles(p)
-        else:
+        elif not collected:
             p.fillRect(full, self._dim)
 
+        if len(self.regions) and self._hovering:
+            self._paint_multi_status(p)
         if self._hovering and snap.state not in (State.ADJUSTING, State.MOVING):
             self._paint_crosshair(p, snap.cursor)
             if self.style.magnifier:
                 self._paint_magnifier(p, snap.cursor)
-        if self._hovering and snap.state is State.IDLE:
+        if self._hovering and snap.state is State.IDLE and not len(self.regions):
             self._paint_hint(p)
         p.end()
+
+    def _paint_collected(self, p: QPainter, collected: list[tuple[int, Rect]]) -> None:
+        """Regions collected with Ctrl: outlined and numbered in selection order."""
+        width = max(1, self.style.thickness)
+        p.setFont(ui_font(10, weight=QFont.Weight.DemiBold))
+        ink = QColor("#000000") if self._accent.lightness() > 150 else QColor("#ffffff")
+        for number, rect in collected:
+            hole = self.to_logical(rect)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(OUTLINE_DARK, width + 2))
+            p.drawRect(hole.adjusted(-1, -1, 1, 1))
+            p.setPen(QPen(self._accent, width, Qt.PenStyle.DashLine))
+            p.drawRect(hole.adjusted(-1, -1, 1, 1))
+            d = 24.0
+            badge = QRectF(hole.left() + 6, hole.top() + 6, d, d)
+            p.setPen(QPen(OUTLINE_DARK, 1))
+            p.setBrush(self._accent)
+            p.drawEllipse(badge)
+            p.setPen(ink)
+            p.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(number))
+
+    def _paint_multi_status(self, p: QPainter) -> None:
+        text = self.translator.t("selector.multi.status", count=len(self.regions))
+        p.setFont(ui_font(10))
+        metrics = p.fontMetrics()
+        w, h = min(self.width() - 32, metrics.horizontalAdvance(text) + 40), metrics.height() + 18
+        self._pill(p, QRectF((self.width() - w) / 2, 24, w, h), text)
 
     def _paint_handles(self, p: QPainter) -> None:
         p.setPen(QPen(self._accent, 2))
@@ -570,13 +686,14 @@ class MonitorOverlay(QWidget):
 class RegionSelector(QObject):
     """Shows overlays on all monitors and reports the chosen rectangle and action."""
 
-    finished = Signal(object)  # (Rect, action) or None
+    finished = Signal(object)  # (Rect, action), (list[Rect], action) for several regions, or None
 
     def __init__(self, translator: Translator, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.translator = translator
         self.overlays: list[MonitorOverlay] = []
         self.frozen: CaptureResult | None = None
+        self.regions = RegionList()
 
     @property
     def active(self) -> bool:
@@ -593,12 +710,14 @@ class RegionSelector(QObject):
         if self.overlays:
             return
         self.frozen = frozen
+        self.regions = RegionList()
         image = qimage_from_captured(frozen.image)
         origin = Point(frozen.region.x, frozen.region.y)
         cursor = QCursor.pos()
         for monitor, screen in match_screens(monitors, QGuiApplication.screens()):
-            overlay = MonitorOverlay(monitor, screen, image, origin, windows, self.translator, frames, style)
+            overlay = MonitorOverlay(monitor, screen, image, origin, windows, self.translator, frames, style, self.regions)
             overlay.pressed.connect(self._on_pressed)
+            overlay.regions_changed.connect(self._on_regions_changed)
             overlay.confirmed.connect(lambda rect, action: self._finish((rect, action)))
             overlay.cancelled.connect(lambda: self._finish(None))
             self.overlays.append(overlay)
@@ -628,10 +747,16 @@ class RegionSelector(QObject):
         if self.overlays:
             self._finish(None)
 
-    def _on_pressed(self, source: MonitorOverlay) -> None:
+    def _on_pressed(self, source: MonitorOverlay, keep: bool = False) -> None:
         for overlay in self.overlays:
             if overlay is not source:
-                overlay.release_selection()
+                overlay.release_selection(keep)
+        if keep:
+            self._on_regions_changed()
+
+    def _on_regions_changed(self) -> None:
+        for overlay in self.overlays:
+            overlay._changed()
 
     def _finish(self, outcome: tuple[Rect, str] | None) -> None:
         overlays, self.overlays = self.overlays, []
