@@ -80,6 +80,32 @@ class CapturedImage:
         return path
 
 
+def stack_offsets(heights: list[int], gap: int = 16) -> list[int]:
+    """Top of each picture when they are placed one below the other, ``gap`` px apart."""
+    offsets, y = [], 0
+    for h in heights:
+        offsets.append(y)
+        y += h + gap
+    return offsets
+
+
+def stack_images(images: list[CapturedImage], gap: int = 16, background: tuple[int, int, int] = (255, 255, 255)) -> CapturedImage:
+    """One image with all ``images`` one below the other, left aligned (multi-capture "one image")."""
+    from PIL import Image
+
+    if not images:
+        raise ValueError("No images to stack")
+    if len(images) == 1:
+        return images[0]
+    offsets = stack_offsets([i.height for i in images], gap)
+    width = max(i.width for i in images)
+    height = offsets[-1] + images[-1].height
+    canvas = Image.new("RGB", (width, height), background)
+    for image, top in zip(images, offsets):
+        canvas.paste(image.to_pil(), (0, top))
+    return CapturedImage.from_pil(canvas)
+
+
 @dataclass(frozen=True)
 class CaptureResult:
     image: CapturedImage
