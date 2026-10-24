@@ -50,7 +50,8 @@ def log_tail(path: str, limit: int = 3500) -> None:
             text = fh.read()[-limit:]
     except OSError:
         return
-    if " failed" not in text and "error" not in text.lower() and "Fatal" not in text:
+    markers = (" failed", "Fatal", "[watchdog]", "Current thread")
+    if not any(m in text for m in markers) and "error" not in text.lower():
         return
     print(f"::warning title=pytest output (tail)::{escape(text)}")
 
