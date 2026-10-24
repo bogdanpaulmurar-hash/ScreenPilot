@@ -17,6 +17,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
+    QMenu,
     QPushButton,
     QToolButton,
     QVBoxLayout,
@@ -28,12 +29,14 @@ from screenpilot.core.events import Event
 from screenpilot.history import EVENT_HISTORY_CHANGED, HistoryEntry
 from screenpilot.ui.controller import AppController
 from screenpilot.ui.qt_helpers import Retranslator, app_icon
-from screenpilot.ui.widgets import Chip, IconBadge, IconButton, ModeTile, label, on_theme_changed
+from screenpilot.ui import icons
+from screenpilot.ui.widgets import Chip, IconBadge, IconButton, ModeTile, label, on_theme_changed, theme
 
 log = logging.getLogger(__name__)
 
 HIDE_BEFORE_CAPTURE_MS = 220
-RECENT_COUNT = 5
+RECENT_COUNT = 6
+COLUMNS = 5
 DELAY_CYCLE = (0, *DELAY_PRESETS)
 
 TILES = (
@@ -46,6 +49,8 @@ TILES = (
     ("procedure", "hub.mode.procedure", "procedure.toggle", False),
     ("video", "hub.mode.video", "record.video", False),
     ("film", "hub.mode.gif", "record.gif", False),
+    ("ocr", "hub.mode.ocr", "ocr.region", False),
+    ("edit", "hub.mode.editor", "editor", False),
 )
 
 
@@ -62,7 +67,7 @@ class CaptureHub(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowIcon(app_icon())
         self.setWindowTitle("ScreenPilot")
-        self.setMinimumWidth(640)
+        self.setMinimumWidth(760)
         self.delay = 0
 
         root = QVBoxLayout(self)
@@ -104,9 +109,12 @@ class CaptureHub(QWidget):
                 rt.bind(tile.set_shortcut_text, "hub.soon")
                 rt.bind(tile.setToolTip, "hub.soon")
             else:
-                tile.clicked.connect(lambda _=False, a=action: self.start_capture(a))
+                if action == "editor":  # not a capture: the editor picker (or the last capture)
+                    tile.clicked.connect(lambda _=False: self.controller.edit_last_capture())
+                else:
+                    tile.clicked.connect(lambda _=False, a=action: self.start_capture(a))
                 self.tiles[action] = tile
-            grid.addWidget(tile, i // 4, i % 4)
+            grid.addWidget(tile, i // COLUMNS, i % COLUMNS)
         root.addLayout(grid)
 
         # Option chips
@@ -252,6 +260,10 @@ class CaptureHub(QWidget):
 
     def _refresh(self) -> None:
         for action, tile in self.tiles.items():
+            if action == "editor":
+                hotkey = self.app.hotkeys.binding("app.open_editor")
+                tile.set_shortcut_text(str(hotkey) if hotkey else self.t("hub.editor.hint"))
+                continue
             hotkey = self.app.hotkeys.binding(action)
             tile.set_shortcut_text(str(hotkey) if hotkey else "")
         session = self.controller.procedure
@@ -290,9 +302,31 @@ class CaptureHub(QWidget):
         button.setFixedSize(88, 60)
         if entry.thumbnail and Path(entry.thumbnail).exists():
             button.setIcon(QIcon(QPixmap(entry.thumbnail)))
-        button.setToolTip(f"{Path(entry.path).name}\n{entry.width}×{entry.height}")
-        button.clicked.connect(lambda _=False, p=entry.path: self._open(p))
+        button.setToolTip(self.t("hub.recent.tip", name=Path(entry.path).name, width=entry.width, height=entry.height))
+        button.clicked.connect(lambda _=False, e=entry: self.controller.edit_history_entry(e))
+        button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        button.customContextMenuRequested.connect(lambda pos, b=button, e=entry: self._thumb_menu(b, e, pos))
         return button
+
+    def thumb_menu(self, entry: HistoryEntry) -> QMenu:
+        t = theme()
+        menu = QMenu(self)
+        for icon_name, key, slot in (
+            ("edit", "history.edit", lambda: self.controller.edit_history_entry(entry)),
+            ("image", "history.open", lambda: self._open(entry.path)),
+            ("copy", "history.copy_image", lambda: self._copy(entry.path)),
+            ("folder", "history.open_folder", lambda: self.app.shell.reveal(Path(entry.path))),
+        ):
+            menu.addAction(icons.icon(icon_name, t.text, 16), self.t(key), slot)
+        return menu
+
+    def _thumb_menu(self, button: QToolButton, entry: HistoryEntry, pos) -> None:
+        self.thumb_menu(entry).exec(button.mapToGlobal(pos))
+
+    def _copy(self, path: str) -> None:
+        result = self.controller.load_image_file(Path(path))
+        if result is not None:
+            self.controller.copy_result(result)
 
     def _open(self, path: str) -> None:
         if sys.platform == "win32":

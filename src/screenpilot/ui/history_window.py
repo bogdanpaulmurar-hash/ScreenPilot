@@ -1,15 +1,21 @@
-"""Capture history window: thumbnails, search, quick actions."""
+"""Capture history window: thumbnails, search, period filter, quick actions.
+
+Double-click (or Edit) opens a capture in the editor; "Open image…" edits any
+picture on disk, so older captures that fell out of the history stay reachable.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,12 +32,15 @@ from PySide6.QtWidgets import (
 from screenpilot.capture.image import CapturedImage
 from screenpilot.core.events import Event
 from screenpilot.history import EVENT_HISTORY_CHANGED, HistoryEntry
+from screenpilot.ui import icons
 from screenpilot.ui.controller import AppController
 from screenpilot.ui.qt_helpers import Retranslator, app_icon
+from screenpilot.ui.widgets import label, on_theme_changed, theme
 
 log = logging.getLogger(__name__)
 
 THUMB = QSize(220, 140)
+PERIODS = (("all", None), ("today", 0), ("week", 7), ("month", 30))
 
 
 class HistoryWindow(QWidget):
@@ -45,13 +54,31 @@ class HistoryWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setProperty("page", True)
         self.setWindowIcon(app_icon())
-        self.resize(820, 560)
+        self.resize(980, 640)
         rt.bind(self.setWindowTitle, "history.title")
 
         self.search = QLineEdit()
         self.search.setClearButtonEnabled(True)
         rt.bind(self.search.setPlaceholderText, "history.search")
         self.search.textChanged.connect(lambda _t: self.refresh())
+
+        self.period = QComboBox()
+        for key, _days in PERIODS:
+            self.period.addItem("", key)
+        self.period.currentIndexChanged.connect(lambda _i: self.refresh())
+
+        self.count = label(role="caption")
+        open_file = QPushButton()
+        rt.bind(open_file.setText, "history.open_file")
+        rt.bind(open_file.setToolTip, "history.open_file.tip")
+        open_file.clicked.connect(lambda: self.controller.edit_file(parent=self))
+        self.open_file_button = open_file
+
+        top = QHBoxLayout()
+        top.addWidget(self.search, 1)
+        top.addWidget(self.period)
+        top.addWidget(self.count)
+        top.addWidget(open_file)
 
         self.list = QListWidget()
         self.list.setViewMode(QListView.ViewMode.IconMode)
@@ -61,7 +88,7 @@ class HistoryWindow(QWidget):
         self.list.setSpacing(8)
         self.list.setWordWrap(True)
         self.list.setUniformItemSizes(True)
-        self.list.itemDoubleClicked.connect(lambda item: self._open(self._entry(item)))
+        self.list.itemDoubleClicked.connect(lambda item: self._edit())
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._context_menu)
 
@@ -71,13 +98,16 @@ class HistoryWindow(QWidget):
 
         buttons = QHBoxLayout()
         self._buttons: dict[str, QPushButton] = {}
-        for key, slot in (
-            ("history.copy_image", self._copy_image),
-            ("history.copy_path", self._copy_path),
-            ("history.open", lambda: self._open(self._current())),
-            ("history.open_folder", self._reveal),
+        for key, icon_name, slot, accent in (
+            ("history.edit", "edit", self._edit, True),
+            ("history.copy_image", "copy", self._copy_image, False),
+            ("history.copy_path", None, self._copy_path, False),
+            ("history.open", "image", lambda: self._open(self._current()), False),
+            ("history.open_folder", "folder", self._reveal, False),
         ):
             button = QPushButton()
+            button.setProperty("accent", accent)
+            button.setProperty("icon_name", icon_name)
             rt.bind(button.setText, key)
             button.clicked.connect(slot)
             buttons.addWidget(button)
@@ -89,39 +119,64 @@ class HistoryWindow(QWidget):
         buttons.addWidget(clear)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.search)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+        layout.addLayout(top)
         layout.addWidget(self.list, 1)
         layout.addWidget(self.empty, 1)
         layout.addLayout(buttons)
 
         controller.bridge.event.connect(self._on_event)
         self.list.currentItemChanged.connect(lambda *_: self._update_buttons())
-        rt.on_change(self.refresh)
-        self.refresh()
+        rt.on_change(self._retranslate)
+        on_theme_changed(self, self._restyle)
+        self._retranslate()
         from screenpilot.ui.qt_helpers import on_escape
 
         on_escape(self, self.close)  # Esc closes the window
+
+    def _restyle(self, t) -> None:
+        for button in self._buttons.values():
+            name = button.property("icon_name")
+            if name:
+                color = t.on_accent if button.property("accent") else t.text
+                button.setIcon(icons.icon(name, color, 16))
+
+    def _retranslate(self) -> None:
+        for i, (key, _days) in enumerate(PERIODS):
+            self.period.setItemText(i, self.t(f"history.period.{key}"))
+        self.refresh()
 
     # -- data -----------------------------------------------------------------
     def _on_event(self, event: Event) -> None:
         if event.name == EVENT_HISTORY_CHANGED:
             self.refresh()
 
-    def refresh(self) -> None:
+    def _filtered(self) -> list[HistoryEntry]:
         entries = self.app.history.search(self.search.text())
+        days = dict(PERIODS).get(self.period.currentData())
+        if days is None:
+            return entries
+        now = datetime.now(timezone.utc).astimezone()
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
+        return [e for e in entries if e.created.astimezone() >= start]
+
+    def refresh(self) -> None:
+        entries = self._filtered()
         self.list.clear()
         for entry in entries:
             when = entry.created.astimezone().strftime("%Y-%m-%d %H:%M")
             mode = self.t(f"capture.mode.{entry.mode}")
             item = QListWidgetItem(self.t("history.item", mode=mode, width=entry.width, height=entry.height, time=when))
             item.setData(Qt.ItemDataRole.UserRole, entry.id)
-            item.setToolTip(entry.path)
+            item.setToolTip(f"{entry.path}\n{self.t('history.double_click')}")
             if entry.thumbnail and Path(entry.thumbnail).exists():
                 item.setIcon(QIcon(QPixmap(entry.thumbnail)))
             self.list.addItem(item)
         has_any = bool(entries)
         self.list.setVisible(has_any)
         self.empty.setVisible(not has_any)
+        self.count.setText(self.t("history.count", count=len(entries), limit=self.app.history.limit))
         hotkey = self.app.hotkeys.binding("capture.region")
         self.empty.setText(self.t("history.empty", hotkey=hotkey or "—"))
         if has_any:
@@ -177,29 +232,17 @@ class HistoryWindow(QWidget):
         if entry is not None:
             self.app.shell.reveal(Path(entry.path))
 
-    def _edit(self) -> None:
+    def _edit(self) -> QWidget | None:
         entry = self._current()
-        if entry is not None:
-            result = self.controller.load_history_capture(entry)
-            if result is not None:
-                self.controller.open_editor(result)
+        return self.controller.edit_history_entry(entry) if entry is not None else None
 
     def _steps(self) -> None:
         entry = self._current()
         if entry is None:
             return
-        from PIL import Image
-
-        from screenpilot.capture.geometry import Rect
-        from screenpilot.capture.image import CaptureResult
-
-        try:
-            with Image.open(entry.path) as img:
-                image = CapturedImage.from_pil(img)
-        except OSError as exc:
-            QMessageBox.warning(self, self.t("history.title"), str(exc))
-            return
-        self.controller.open_steps(CaptureResult(image, entry.mode, Rect(0, 0, image.width, image.height)))
+        result = self.controller.load_history_capture(entry)
+        if result is not None:
+            self.controller.open_steps(result)
 
     def _remove(self) -> None:
         entry = self._current()
@@ -216,16 +259,18 @@ class HistoryWindow(QWidget):
         if item is None:
             return
         self.list.setCurrentItem(item)
+        t = theme()
         menu = QMenu(self)
-        for key, slot in (
-            ("history.open", lambda: self._open(self._current())),
-            ("history.copy_image", self._copy_image),
-            ("history.copy_path", self._copy_path),
-            ("history.open_folder", self._reveal),
-            ("history.edit", self._edit),
-            ("history.steps", self._steps),
-            ("history.remove", self._remove),
+        for key, icon_name, slot in (
+            ("history.edit", "edit", self._edit),
+            ("history.open", "image", lambda: self._open(self._current())),
+            ("history.copy_image", "copy", self._copy_image),
+            ("history.copy_path", None, self._copy_path),
+            ("history.open_folder", "folder", self._reveal),
+            ("history.steps", "steps", self._steps),
+            ("history.remove", "trash", self._remove),
         ):
-            menu.addAction(self.t(key), slot)
+            action = menu.addAction(self.t(key), slot)
+            if icon_name:
+                action.setIcon(icons.icon(icon_name, t.text, 16))
         menu.exec(self.list.viewport().mapToGlobal(pos))
-

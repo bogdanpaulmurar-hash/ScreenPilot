@@ -355,9 +355,17 @@ class EditorTests(UiTestCase):
         editor.set_tool("select")
         QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(round(t.left() + 165 * s), round(t.top() + 70 * s)))
         self.assertEqual(editor.doc.shapes[canvas.selected].kind, "rect")
-        before = editor.doc.shapes[canvas.selected].p1
+        before = editor.doc.shapes[canvas.selected]
+        # the middle of the left edge is a resize handle: only the left side moves
         self._drag(canvas, (165, 70), (185, 80))
-        self.assertEqual(editor.doc.shapes[canvas.selected].p1, Point(before.x + 20, before.y + 10))
+        resized = editor.doc.shapes[canvas.selected]
+        self.assertEqual(resized.p1, Point(before.p1.x + 20, before.p1.y))
+        self.assertEqual(resized.p2, before.p2)
+        # grabbing the edge away from the handles moves the whole shape
+        self._drag(canvas, (260, 50), (280, 60))
+        moved = editor.doc.shapes[canvas.selected]
+        self.assertEqual(moved.p1, Point(resized.p1.x + 20, resized.p1.y + 10))
+        self.assertEqual(moved.p2, Point(resized.p2.x + 20, resized.p2.y + 10))
         editor.set_color("#0067c0")
         self.assertEqual(editor.doc.shapes[canvas.selected].color, "#0067c0")
         canvas.delete_selected()
@@ -1285,6 +1293,122 @@ class CopyAndCloseTests(UiTestCase):
         steps.copy_and_close()
         self.assertIsNotNone(self.app.clipboard.image)
         self.assertTrue(wait_until(lambda: not any(k.startswith("steps-") for k in self.controller._windows)))
+
+
+class EditorV2Tests(UiTestCase):
+    """Editor features restored from the laptop build: pictures, handles, stacking, symbols."""
+
+    def _editor(self):
+        result = self.app.capture.capture_window()
+        editor = self.controller.open_editor(result)
+        QTest.qWaitForWindowExposed(editor)
+        editor.resize(1100, 760)
+        QApplication.processEvents()
+        return editor
+
+    def _view(self, canvas, p):
+        v = canvas.view_point(p)
+        return QPoint(round(v.x()), round(v.y()))
+
+    def test_insert_pictures_select_move_and_done(self):
+        from PIL import Image
+
+        editor = self._editor()
+        doc = editor.doc
+        indexes = editor.insert_pictures([Image.new("RGB", (240, 160), "blue"), Image.new("RGB", (200, 120), "red")])
+        self.assertEqual(len(indexes), 2)
+        self.assertEqual([s.kind for s in doc.shapes], ["image", "image"])
+        self.assertEqual(editor.canvas.selected, indexes[-1])
+        self.assertEqual(editor.canvas.tool, "select")
+        before = doc.shapes[indexes[-1]].p1
+        editor.canvas.nudge_selected(10, 0)
+        self.assertEqual(doc.shapes[indexes[-1]].p1.x, before.x + 10)
+        editor.canvas.raise_selected(False)  # send to back
+        self.assertEqual(doc.shapes[0].p1.x, before.x + 10)
+        shot(editor, "60_editor_pictures")
+        editor.done()
+        self.assertTrue(wait_until(lambda: self.captured))
+        self.assertEqual(self.captured[0][0].metadata["shapes"], 2)
+
+    def test_rectangle_can_be_resized_with_its_handles(self):
+        from screenpilot.editor.document import Shape
+
+        editor = self._editor()
+        canvas = editor.canvas
+        index = editor.doc.add(Shape("rect", Point(100, 80), Point(300, 200), width=4))
+        canvas.refresh()
+        editor.set_tool("select")
+        canvas.select(index)
+        handles = canvas.handles()
+        self.assertIn("se", handles)
+        original = editor.doc.shapes[index].bounds
+        start = self._view(canvas, handles["se"])
+        end = self._view(canvas, Point(handles["se"].x + 60, handles["se"].y + 40))
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start)
+        QTest.mouseMove(canvas, end)
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end)
+        b = editor.doc.shapes[index].bounds
+        self.assertGreater(b.width, original.width + 30)
+        self.assertGreater(b.height, original.height + 20)
+        self.assertEqual((b.x, b.y), (original.x, original.y))  # the opposite corner stays put
+        editor.undo()
+        self.assertEqual(editor.doc.shapes[index].bounds, original)
+
+    def test_insert_menu_offers_recent_captures_and_symbols(self):
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: self.app.history.entries()))
+        editor = self._editor()
+        menu = editor.build_insert_menu()
+        recent = [a for a in menu.actions() if a.menu() is not None][0].menu()
+        self.assertGreaterEqual(len(recent.actions()), 1)
+        recent.actions()[0].trigger()
+        self.assertEqual(editor.doc.shapes[-1].kind, "image")
+        editor.set_symbol("✅")
+        self.assertEqual(editor.canvas.tool, "emoji")
+        editor.close()
+
+    def test_procedure_step_editor_has_pictures_and_keeps_copy_close(self):
+        self.controller.start_procedure()
+        session = self.controller.procedure
+        session.add(self.app.capture.capture_window().image)
+        window = self.controller.open_procedure(session)
+        QTest.qWaitForWindowExposed(window)
+        window.edit_image.emit(0)
+        self.assertTrue(wait_until(lambda: any(k.startswith("editor-") for k in self.controller._windows)))
+        editor = next(w for k, w in self.controller._windows.items() if k.startswith("editor-"))
+        self.assertIsNotNone(editor._recent_images)
+        self.assertIsNotNone(editor.on_copy_close)
+        editor.close()
+        window.close()
+        self.controller.cancel_procedure()
+
+
+class HubEditorTests(UiTestCase):
+    def test_editor_and_ocr_tiles_and_recent_thumbnail_opens_editor(self):
+        hub = self.controller.show_hub()
+        QTest.qWaitForWindowExposed(hub)
+        self.assertIn("editor", hub.tiles)
+        self.assertIn("ocr.region", hub.tiles)
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: hub.recent_row.count() > 0))
+        entry = self.app.history.entries()[0]
+        menu = hub.thumb_menu(entry)
+        self.assertEqual(len(menu.actions()), 4)
+        editor = self.controller.edit_history_entry(entry)
+        self.assertIsNotNone(editor)
+        self.assertEqual(editor.result.metadata.get("source"), entry.path)
+        editor.close()
+
+    def test_history_period_filter_and_count(self):
+        self.controller.trigger("capture.window")
+        self.assertTrue(wait_until(lambda: self.app.history.entries()))
+        window = self.controller.show_history()
+        QTest.qWaitForWindowExposed(window)
+        self.assertEqual(window.list.count(), 1)
+        window.period.setCurrentIndex(1)  # today
+        self.assertEqual(window.list.count(), 1)
+        self.assertIn("1", window.count.text())
+        window.close()
 
 
 if __name__ == "__main__":
