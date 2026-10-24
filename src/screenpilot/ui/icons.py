@@ -72,6 +72,12 @@ _PATHS: dict[str, str] = {
     "shield": '<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="m9 12 2 2 4-4"/>',
     "general": '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     "workflow": '<rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M6 10v4a3 3 0 0 0 3 3h6"/><path d="m13 15 2 2-2 2"/>',
+    "emoji": '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
+    "image_add": '<path d="M13 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m19 16-4-4-9 8"/><path d="M19 2v6M16 5h6"/>',
+    "front": '<rect x="4" y="4" width="10" height="10" rx="1.5" stroke-dasharray="2 2.5"/><rect x="10" y="10" width="10" height="10" rx="1.5"/>',
+    "back": '<rect x="4" y="4" width="10" height="10" rx="1.5"/><rect x="10" y="10" width="10" height="10" rx="1.5" stroke-dasharray="2 2.5"/>',
+    "palette": '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><path d="M7.5 11.5h.01M10 7.5h.01M15 7.5h.01M17.5 11h.01"/>',
+    "duplicate": '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/><path d="M14 11v6M11 14h6"/>',
     "logo": '<rect x="2.5" y="2.5" width="19" height="19" rx="5"/><path d="M7 10V8a1 1 0 0 1 1-1h2M14 7h2a1 1 0 0 1 1 1v2M17 14v2a1 1 0 0 1-1 1h-2M10 17H8a1 1 0 0 1-1-1v-2"/>',
 }
 

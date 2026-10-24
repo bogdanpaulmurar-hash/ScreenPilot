@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "screenpilot"
-version = "0.7.6"
+version = "0.7.7"
 description = "Lightweight, enterprise-friendly screenshot, screen recording and documentation platform."
 readme = "README.md"
 requires-python = ">=3.10"

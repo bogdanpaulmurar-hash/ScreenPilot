@@ -6,6 +6,7 @@ which makes failures readable without downloading full job logs.
 
 from __future__ import annotations
 
+import os
 import sys
 import xml.etree.ElementTree as ET
 
@@ -50,7 +51,8 @@ def log_tail(path: str, limit: int = 3500) -> None:
             text = fh.read()[-limit:]
     except OSError:
         return
-    if " failed" not in text and "error" not in text.lower() and "Fatal" not in text:
+    markers = (" failed", "Fatal", "[watchdog]", "Current thread")
+    if not any(m in text for m in markers) and "error" not in text.lower():
         return
     print(f"::warning title=pytest output (tail)::{escape(text)}")
 
@@ -61,4 +63,7 @@ if __name__ == "__main__":
     code = main(sys.argv[1] if len(sys.argv) > 1 else "junit.xml")
     if len(sys.argv) > 2:
         log_tail(sys.argv[2])
+    if os.path.exists("watchdog.log"):  # written by tests/conftest.py when a test hangs
+        with open("watchdog.log", encoding="utf-8", errors="replace") as fh:
+            print(f"::error title=Test hang (watchdog)::{escape(fh.read()[-6000:])}")
     sys.exit(code)
