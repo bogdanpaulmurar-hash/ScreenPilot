@@ -555,12 +555,13 @@ class AppController(QObject):
             save_dir=self.app.output_dir,
             settings=self.app.settings,
             ocr_engine=self.ocr_engine,
+            recent_images=self.recent_images,
             on_copy_close=done,  # the step keeps the edit too
         )
         key = f"editor-{id(editor)}"
         self._windows[key] = editor
         editor.destroyed.connect(lambda *_: self._windows.pop(key, None))
-        editor.show()
+        present(editor)  # in front of the procedure window, with keyboard focus
 
     def capture_region_then_scroll(self) -> None:
         """Selector where Enter / click starts a scrolling capture."""
@@ -891,12 +892,47 @@ class AppController(QObject):
             save_dir=self.app.output_dir,
             settings=self.app.settings,
             ocr_engine=self.ocr_engine,
+            recent_images=self.recent_images,
         )
         key = f"editor-{id(editor)}"
         self._windows[key] = editor
         editor.destroyed.connect(lambda *_: self._windows.pop(key, None))
         present(editor)
         return editor
+
+    def recent_images(self, count: int = 15) -> list[tuple[str, str, str]]:
+        """(label, path, thumbnail) of recent captures, for the editor's Insert picture menu."""
+        items = []
+        for entry in self.app.history.entries()[:count]:
+            when = entry.created.astimezone().strftime("%d.%m %H:%M")
+            items.append((f"{when} · {entry.width}×{entry.height}", entry.path, entry.thumbnail))
+        return items
+
+    def edit_history_entry(self, entry) -> QWidget | None:
+        """Open a capture from the history in the editor."""
+        result = self.load_history_capture(entry)
+        return self.open_editor(result) if result is not None else None
+
+    def edit_file(self, path: Path | str | None = None, parent: QWidget | None = None) -> QWidget | None:
+        """Open any image file in the editor (asks for one when ``path`` is None)."""
+        if path is None:
+            result = self.open_image_file(parent)
+        else:
+            result = self.load_image_file(Path(path))
+        return self.open_editor(result) if result is not None else None
+
+    def load_image_file(self, path: Path, mode: str = "region") -> CaptureResult | None:
+        from PIL import Image
+
+        from screenpilot.capture.image import CapturedImage
+
+        try:
+            with Image.open(path) as img:
+                image = CapturedImage.from_pil(img.convert("RGB"))
+        except OSError as exc:
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            return None
+        return CaptureResult(image, mode, Rect(0, 0, image.width, image.height), metadata={"source": str(path)})
 
     def last_capture(self) -> CaptureResult | None:
         """The newest capture: the one taken in this session (even if only
