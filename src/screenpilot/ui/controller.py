@@ -30,7 +30,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QWidget
 from screenpilot.app import ScreenPilotApp
 from screenpilot.capture.detect import FrameFinder
 from screenpilot.capture.geometry import Point, Rect
-from screenpilot.capture.image import CaptureResult
+from screenpilot.capture.image import CaptureResult, stack_images
 from screenpilot.core.errors import ScreenPilotError
 from screenpilot.core.events import Event
 from screenpilot.hotkeys import RegistrationStatus
@@ -61,6 +61,8 @@ MENU_SETTLE_MS = 250  # let the tray menu disappear before grabbing the screen
 CHROME_SETTLE_MS = 150  # let our own floating bar disappear before grabbing
 ESC_POLL_MS = 60
 ESC_DEBOUNCE_S = 0.4  # an Esc the selector already handled must not cancel the next flow
+MULTI_CLIPBOARD_DELAY_MS = 400  # between images copied one by one, so Windows' clipboard history keeps each
+MULTI_EDITOR_GAP = 16  # px between the captures stacked in the editor
 
 
 class AppController(QObject):
@@ -101,6 +103,7 @@ class AppController(QObject):
         self.scroll_finished.connect(self._on_scroll_finished)
         self.scroll_ask.connect(self._on_scroll_ask)
         self.last_result: CaptureResult | None = None  # newest capture, also when only copied
+        self._multi_copy: list[CaptureResult] | None = None  # captures still to copy one by one
         self._asking = False  # a "continue / stop" question is open
         self._last_esc_handled = 0.0
         self._esc_latch = None
@@ -248,6 +251,7 @@ class AppController(QObject):
             pick_color=mode_id == "tools.color",
             measure=mode_id == "tools.measure",
             action_bar=bool(s.get("selector.action_bar")),
+            multi=mode is None or mode.action in ("default", "copy", "edit"),
         )
 
     def capture_region(self, mode_id: str = "capture.region") -> None:
@@ -320,6 +324,9 @@ class AppController(QObject):
         default, self._region_default = self._region_default, "default"
         if action == "default":
             action = default
+        if isinstance(rect, list):
+            self.capture_many(frozen, rect, action)
+            return
         if action == ACTION_SCROLL:
             self.start_scrolling(rect)
             return
@@ -366,6 +373,80 @@ class AppController(QObject):
             self.run_ocr(result)
         else:
             self.process(result)
+
+    # -- several areas (Ctrl held in the selector) -----------------------------
+    def capture_many(self, frozen: CaptureResult, rects: list[Rect], action: str) -> list[CaptureResult]:
+        """Capture every area from the frozen desktop, then copy them or open the editor with all of them.
+
+        "default" also runs the after-capture actions (saving, history) for each capture;
+        the clipboard is always handled here, once for all: one by one or as one image."""
+        results: list[CaptureResult] = []
+        for rect in rects:
+            try:
+                result = self.app.capture.region_from_frozen(frozen, rect)
+            except ScreenPilotError as exc:
+                self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
+                return []
+            if self.app.settings.get("watermark.enabled"):
+                from screenpilot.editor.watermark import apply_watermark
+
+                result = apply_watermark(result, self.app.settings)
+            results.append(result)
+        if not results:
+            return results
+        self.last_result = results[-1]
+        if action == ACTION_EDIT:
+            self.open_editor_many(results)
+            return results
+        if action != ACTION_COPY:
+            steps = [s for s in self.app.settings.get("workflow.after_capture") if s.get("id") != "copy_image"]
+            for result in results:
+                if steps:
+                    self.process(result, steps=steps, quiet=True)
+                if self.procedure is not None:
+                    self._add_procedure_step(result)
+        self.copy_many(results)
+        return results
+
+    def copy_many(self, results: list[CaptureResult]) -> None:
+        """Clipboard for several captures: one by one (each lands in Win+V), or stacked into one image."""
+        count = len(results)
+        mode = "combined" if self.app.settings.get("capture.multi_clipboard") == "combined" else "sequence"
+
+        def done() -> None:
+            self.notify.emit(self.t("notify.multi.title", count=count), self.t(f"notify.multi.body.{mode}"), False)
+
+        if mode == "combined":
+            try:
+                image = stack_images([r.image for r in results], gap=MULTI_EDITOR_GAP)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Combining captures failed")
+                self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+                return
+            self.copy_result(CaptureResult(image, results[0].mode, results[0].region))
+            done()
+            return
+        pending = list(results)
+        self._multi_copy = pending  # keeps the chain alive; a new multi-capture replaces it
+
+        def next_image() -> None:
+            if self._multi_copy is not pending or not pending:
+                return
+            self.copy_result(pending.pop(0))
+            if pending:
+                QTimer.singleShot(MULTI_CLIPBOARD_DELAY_MS, next_image)
+            else:
+                self._multi_copy = None
+                done()
+
+        next_image()
+
+    def open_editor_many(self, results: list[CaptureResult]) -> QWidget:
+        """Editor with the first capture as the fixed background and the others as movable pictures below it."""
+        editor = self.open_editor(results[0])
+        if len(results) > 1:
+            editor.attach_below([r.image for r in results[1:]], gap=MULTI_EDITOR_GAP)
+        return editor
 
     def _pick_color(self, frozen: CaptureResult, rect: Rect) -> None:
         x, y = rect.x - frozen.region.x, rect.y - frozen.region.y

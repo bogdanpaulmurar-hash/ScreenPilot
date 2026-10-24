@@ -248,3 +248,58 @@ class SelectionModel:
         if "s" in handle:
             bottom = p.y
         return Rect.from_points(Point(left, top), Point(right, bottom))
+
+
+class RegionList:
+    """Regions collected one after another while Ctrl is held (multi-capture).
+
+    Kept in selection order across all monitors: the order decides the
+    clipboard sequence and the layout in the editor. Headless, like
+    :class:`SelectionModel`, so it is unit-testable.
+    """
+
+    def __init__(self) -> None:
+        self.rects: list[Rect] = []
+
+    def __len__(self) -> int:
+        return len(self.rects)
+
+    def __iter__(self):
+        return iter(self.rects)
+
+    def add(self, rect: Rect | None) -> bool:
+        """Append a region; empty ones and an exact repeat of the last one are ignored."""
+        if rect is None or rect.is_empty:
+            return False
+        if self.rects and self.rects[-1] == rect:
+            return False
+        self.rects.append(rect)
+        return True
+
+    def pop(self) -> Rect | None:
+        """Drop the last region (Backspace / Ctrl+Z)."""
+        return self.rects.pop() if self.rects else None
+
+    def remove_at(self, p: Point) -> Rect | None:
+        """Drop the most recent region under ``p`` (right-click on it)."""
+        for i in range(len(self.rects) - 1, -1, -1):
+            if self.rects[i].contains(p):
+                return self.rects.pop(i)
+        return None
+
+    def clear(self) -> None:
+        self.rects.clear()
+
+    def number(self, rect: Rect) -> int:
+        """1-based position shown on the region, 0 if it is not in the list."""
+        for i, r in enumerate(self.rects):
+            if r == rect:
+                return i + 1
+        return 0
+
+    def final(self, current: Rect | None = None) -> list[Rect]:
+        """What a confirmation captures: the collected regions plus the current selection."""
+        rects = list(self.rects)
+        if current is not None and not current.is_empty and current not in rects:
+            rects.append(current)
+        return rects

@@ -51,6 +51,7 @@ DEFAULTS: dict[str, Any] = {
         "output_dir": "",
         "region_action": "workflow",  # Region (Ctrl+Shift+1): "workflow" = after-capture actions, "copy" = clipboard only
         "scroll_mode": "auto",  # scrolling capture: "auto" = ScreenPilot scrolls, "manual" = you scroll, Esc finishes
+        "multi_clipboard": "sequence",  # several areas (Ctrl): "sequence" = one by one (Win+V history), "combined" = one image
     },
     "watermark": {
         "enabled": False,
