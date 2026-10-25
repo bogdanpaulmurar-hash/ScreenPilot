@@ -176,3 +176,37 @@ class EditorPicturesTests(unittest.TestCase):
         layer = Image.new("RGBA", (120, 90), (0, 0, 0, 0))
         draw_shape(layer, ImageDraw.Draw(layer), arrow, None)
         self.assertGreater(layer.getchannel("A").getbbox()[2], 80)
+
+
+class HandleGeometryTests(unittest.TestCase):
+    """Handle maths used by the editor window (headless, no Qt needed)."""
+
+    def test_box_handles_and_resize_keep_the_opposite_side(self):
+        from screenpilot.editor.document import box_handles, resize_box
+
+        handles = box_handles(Rect(10, 20, 100, 50))
+        self.assertEqual(set(handles), {"nw", "n", "ne", "e", "se", "s", "sw", "w"})
+        self.assertEqual(handles["se"], Point(109, 69))
+        self.assertEqual(resize_box(Rect(10, 20, 100, 50), "e", Point(200, 0), False), (10, 20, 200, 69))
+        self.assertEqual(resize_box(Rect(10, 20, 100, 50), "nw", Point(500, 500), False, 6), (103, 63, 109, 69))  # min size
+        l, t, r, b = resize_box(Rect(0, 0, 100, 50), "se", Point(299, 60), True)
+        self.assertAlmostEqual((r - l + 1) / (b - t + 1), 2.0, delta=0.05)  # proportions kept
+        self.assertEqual((l, t), (0, 0))
+
+    def test_text_symbols_and_steps_scale_from_a_corner(self):
+        from screenpilot.editor.document import scaled, shape_bounds
+
+        for kind, text, size in (("text", "Hello\nworld", 20), ("emoji", "✅", 40), ("step", "", 20)):
+            with self.subTest(kind=kind):
+                shape = Shape(kind, Point(100, 100), Point(100, 100), text=text, font_size=size)
+                b = shape_bounds(shape)
+                bigger = scaled(shape, "se", Point(b.right - 1 + b.width, b.bottom - 1 + b.height))
+                nb = shape_bounds(bigger)
+                self.assertGreater(bigger.font_size, size * 1.6)
+                self.assertLessEqual(abs(nb.x - b.x) + abs(nb.y - b.y), 2)  # top-left corner stays
+                smaller = scaled(shape, "nw", Point(b.x + b.width // 2, b.y + b.height // 2))
+                sb = shape_bounds(smaller)
+                self.assertLess(smaller.font_size, size)
+                self.assertLessEqual(abs(sb.right - b.right) + abs(sb.bottom - b.bottom), 2)  # bottom-right stays
+                tiny = scaled(shape, "nw", Point(b.right + 500, b.bottom + 500))
+                self.assertGreaterEqual(tiny.font_size, 6)
