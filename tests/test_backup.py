@@ -192,5 +192,108 @@ class ScheduleTests(unittest.TestCase):
         self.assertFalse(backup.is_cloud_folder(Path(r"D:\Backups")))
 
 
+class RestoreTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.old = make_paths(self.root / "old" / "profile")
+        seed(self.old)
+        settings = {
+            "schema_version": 3,
+            "general": {"theme": "dark", "start_with_windows": True},
+            "capture": {"output_dir": str(self.root / "old" / "home" / "Pictures" / "Shots")},
+            "recording": {"ffmpeg_path": str(self.root / "old" / "home" / "ffmpeg.exe")},
+            "backup": {"folder": "X:/old-backups", "keep": 3},
+        }
+        made = backup.create_backup(self.old, self.root / "b", settings_data=settings)
+        self.contents = backup.read_backup(made.path)
+        self.contents.manifest["home"] = str(self.root / "old" / "home")
+        self.new = make_paths(self.root / "new" / "profile")
+        self.home = self.root / "new" / "home"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _plan(self, **kw):
+        current = {"general": {"theme": "light", "start_with_windows": False}, "backup": {"folder": "D:/mine", "keep": 7}}
+        kw.setdefault("current_settings", current)
+        return backup.plan_restore(self.contents, self.new, home=self.home, **kw)
+
+    def test_preview_lists_changes_and_keeps_local_keys(self):
+        plan = self._plan(current_hotkeys={"bindings": {"capture.region": "Ctrl+Shift+Z"}})
+        self.assertIn("general.theme", plan.settings_changes)
+        self.assertNotIn("general.start_with_windows", plan.settings_changes)
+        self.assertFalse(any(k.startswith("backup.") for k in plan.settings_changes))
+        self.assertEqual(plan.settings["backup"]["folder"], "D:/mine")
+        self.assertEqual(plan.hotkey_changes, ["capture.region"])
+        self.assertEqual(plan.procedures_new, ["20261025-070000-aaaaaa"])
+        self.assertTrue(plan.has_changes)
+
+    def test_paths_from_another_user_folder_are_adapted(self):
+        plan = self._plan()
+        self.assertEqual(Path(plan.settings["capture"]["output_dir"]), self.home / "Pictures" / "Shots")
+        # ffmpeg is not at the adapted place on this PC: the local value stays
+        self.assertEqual(plan.settings["recording"]["ffmpeg_path"], "")
+        # the capture lived in the old captures folder; it maps to this PC's captures folder
+        moved = self.new.captures_dir / "shot.png"
+        self.assertEqual(plan.history_missing, [str(moved)])
+        moved.write_bytes(b"capture")
+        plan = self._plan()
+        self.assertEqual(plan.history_missing, [])
+        self.assertEqual(Path(plan.history_added[0]["path"]), moved)
+        self.assertEqual(Path(plan.history_added[0]["thumbnail"]), self.new.data_dir / "thumbnails" / "abc.png")
+
+    def test_adapt_paths_off_keeps_paths(self):
+        plan = self._plan(adapt_paths=False)
+        self.assertEqual(Path(plan.settings["capture"]["output_dir"]), self.root / "old" / "home" / "Pictures" / "Shots")
+
+    def test_apply_writes_files(self):
+        (self.new.captures_dir / "shot.png").write_bytes(b"capture")
+        plan = self._plan(current_hotkeys={"bindings": {}})
+        backup.apply_restore(plan, self.new)
+        settings = json.loads(self.new.settings_file.read_text(encoding="utf-8"))
+        self.assertEqual(settings["general"]["theme"], "dark")
+        self.assertFalse(settings["general"]["start_with_windows"])
+        history = json.loads((self.new.data_dir / "history.json").read_text(encoding="utf-8"))
+        self.assertEqual([e["id"] for e in history["entries"]], ["abc"])
+        self.assertEqual((self.new.data_dir / "thumbnails" / "abc.png").read_bytes(), b"png")
+        step = self.new.data_dir / "procedures" / "20261025-070000-aaaaaa" / "step-001.png"
+        self.assertEqual(step.read_bytes(), b"step")
+        self.assertTrue(self.new.hotkeys_file.exists())
+        # a second restore finds nothing new
+        again = self._plan(current_settings=settings, current_hotkeys=json.loads(self.new.hotkeys_file.read_text()))
+        self.assertFalse(again.has_changes)
+        self.assertEqual(again.procedures_skipped, ["20261025-070000-aaaaaa"])
+
+    def test_restore_on_same_pc_keeps_paths(self):
+        plan = backup.plan_restore(self.contents, self.old, current_settings={}, home=self.root / "old" / "home")
+        self.assertEqual(plan.remapped, [])
+        self.assertEqual(plan.history_added, [])  # entry already in the history
+        self.assertEqual(plan.procedures_skipped, ["20261025-070000-aaaaaa"])
+
+
+class RemapTests(unittest.TestCase):
+    def test_windows_paths(self):
+        pairs = [(r"C:\Users\old", r"C:\Users\new")]
+        self.assertEqual(backup.remap_path(r"c:\users\OLD\Pictures\x.png", pairs), r"C:\Users\new\Pictures\x.png")
+        self.assertEqual(backup.remap_path(r"C:\Users\older\x.png", pairs), r"C:\Users\older\x.png")
+        self.assertEqual(backup.remap_path(r"D:\Shots", pairs), r"D:\Shots")
+        self.assertEqual(backup.remap_path("", pairs), "")
+
+
+class SettingsReplaceTests(unittest.TestCase):
+    def test_replace_notifies_changed_keys(self):
+        from screenpilot.settings import Settings
+
+        settings = Settings(None)
+        heard = []
+        settings.add_listener(lambda key, value: heard.append((key, value)))
+        changed = settings.replace({"schema_version": 1, "general": {"theme": "dark"}, "recording": {"gif_fps": 12}})
+        self.assertEqual(settings.get("general.theme"), "dark")
+        self.assertEqual(settings.get("recording.gif_fps"), 15)  # migrated like a normal load
+        self.assertEqual(changed, ["general.theme"])
+        self.assertEqual(heard, [("general.theme", "dark")])
+
+
 if __name__ == "__main__":
     unittest.main()

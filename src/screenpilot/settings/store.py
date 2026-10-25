@@ -200,6 +200,19 @@ def _type_ok(default: Any, value: Any) -> bool:
     return isinstance(value, type(default))
 
 
+def changed_keys(old: dict[str, Any], new: dict[str, Any], prefix: str = "") -> list[str]:
+    """Dotted keys whose (leaf) value differs between two settings trees."""
+    keys: list[str] = []
+    for key in sorted(set(old) | set(new)):
+        a, b = old.get(key), new.get(key)
+        path = f"{prefix}{key}"
+        if isinstance(a, dict) and isinstance(b, dict):
+            keys += changed_keys(a, b, f"{path}.")
+        elif a != b and path != "schema_version":
+            keys.append(path)
+    return keys
+
+
 class Settings:
     def __init__(self, path: Path | None, defaults: dict[str, Any] | None = None) -> None:
         self.path = path
@@ -243,6 +256,29 @@ class Settings:
             data["schema_version"] = version
             log.info("Migrated settings to schema %d", version)
         return data
+
+    def normalize(self, stored: dict[str, Any]) -> dict[str, Any]:
+        """``stored`` (e.g. from a backup) migrated and merged over the defaults, like :meth:`load`."""
+        return _merge(self._defaults, self._migrate(copy.deepcopy(stored)))
+
+    def replace(self, stored: dict[str, Any]) -> list[str]:
+        """Replace every value at once (restore); listeners hear each changed key.
+
+        Returns the dotted keys that changed. The caller saves.
+        """
+        new = self.normalize(stored)
+        with self._lock:
+            old, self._data = self._data, new
+            listeners = list(self._listeners)
+        changed = changed_keys(old, new)
+        for key in changed:
+            value = self.get(key)
+            for listener in listeners:
+                try:
+                    listener(key, value)
+                except Exception:  # noqa: BLE001
+                    log.exception("Settings listener failed for %s", key)
+        return changed
 
     def save(self) -> None:
         if self.path is None:

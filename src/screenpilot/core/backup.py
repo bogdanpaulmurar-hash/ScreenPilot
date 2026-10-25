@@ -311,3 +311,188 @@ def read_backup(path: Path) -> BackupContents:
                 if len(parts) == 4 and parts[3]:
                     contents.procedures.setdefault(parts[2], {})[parts[3]] = data
         return contents
+
+
+# -- restoring ------------------------------------------------------------------
+# Settings that describe this PC, not the user's preferences: a restore keeps the local value.
+LOCAL_KEYS = ("general.start_with_windows", "general.first_run_completed", "backup")
+PATH_KEYS = ("capture.output_dir", "recording.output_dir", "recording.ffmpeg_path")
+
+
+def _norm(text: str) -> str:
+    return text.replace("\\", "/").rstrip("/")
+
+
+def remap_path(value: str, pairs: list[tuple[str, str]]) -> str:
+    """Rewrite ``value`` when it starts with one of the old prefixes (case-insensitive)."""
+    if not value:
+        return value
+    v = _norm(value)
+    for old, new in pairs:
+        o = _norm(old)
+        if o and (v.lower() == o.lower() or v.lower().startswith(o.lower() + "/")):
+            sep = "\\" if ("\\" in new or ":" in new) else "/"
+            rest = v[len(o) :].replace("/", sep)
+            return new.rstrip("\\/") + rest
+    return value
+
+
+def _get(tree: dict[str, Any], dotted: str) -> Any:
+    node: Any = tree
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def _set(tree: dict[str, Any], dotted: str, value: Any) -> None:
+    parts = dotted.split(".")
+    node = tree
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value
+
+
+@dataclass
+class RestorePlan:
+    """Everything a restore would change, computed without touching any file."""
+
+    contents: BackupContents
+    settings: dict[str, Any] | None = None
+    settings_changes: list[str] = field(default_factory=list)
+    hotkeys: dict[str, Any] | None = None
+    hotkey_changes: list[str] = field(default_factory=list)
+    history: dict[str, Any] | None = None
+    history_added: list[dict[str, Any]] = field(default_factory=list)
+    history_missing: list[str] = field(default_factory=list)  # capture files not found on this PC
+    procedures_new: list[str] = field(default_factory=list)
+    procedures_skipped: list[str] = field(default_factory=list)  # already here, left untouched
+    remapped: list[tuple[str, str]] = field(default_factory=list)  # (old, new) folders used for paths
+
+    @property
+    def has_changes(self) -> bool:
+        return bool(self.settings_changes or self.hotkey_changes or self.history_added or self.procedures_new)
+
+
+def _path_pairs(manifest: dict[str, Any], paths: AppPaths, home: Path) -> list[tuple[str, str]]:
+    pairs = []
+    for key, new in (
+        ("data_dir", paths.data_dir),
+        ("config_dir", paths.config_dir),
+        ("captures_dir", paths.captures_dir),
+        ("home", home),
+    ):
+        old = manifest.get(key)
+        if isinstance(old, str) and old and _norm(old).lower() != _norm(str(new)).lower():
+            pairs.append((old, str(new)))
+    return sorted(pairs, key=lambda p: len(_norm(p[0])), reverse=True)
+
+
+def plan_restore(
+    contents: BackupContents,
+    paths: AppPaths,
+    *,
+    current_settings: dict[str, Any],
+    current_hotkeys: dict[str, Any] | None = None,
+    adapt_paths: bool = True,
+    home: Path | None = None,
+    exists=Path.exists,
+) -> RestorePlan:
+    """Compare a backup with the current state and prepare the files to write."""
+    from screenpilot.settings.store import Settings, changed_keys
+
+    plan = RestorePlan(contents=contents)
+    pairs = _path_pairs(contents.manifest, paths, home or Path.home()) if adapt_paths else []
+    plan.remapped = pairs
+    normalizer = Settings(None)
+    current = normalizer.normalize(current_settings)
+
+    if contents.settings is not None:
+        incoming = normalizer.normalize(contents.settings)
+        for key in LOCAL_KEYS:
+            _set(incoming, key, _get(current, key))
+        for key in PATH_KEYS:
+            value = _get(incoming, key)
+            if isinstance(value, str) and value:
+                _set(incoming, key, remap_path(value, pairs))
+        ffmpeg = _get(incoming, "recording.ffmpeg_path")
+        if ffmpeg and not exists(Path(ffmpeg)):
+            _set(incoming, "recording.ffmpeg_path", _get(current, "recording.ffmpeg_path"))
+        plan.settings = incoming
+        plan.settings_changes = changed_keys(current, incoming)
+
+    if contents.hotkeys is not None and isinstance(contents.hotkeys.get("bindings"), dict):
+        plan.hotkeys = contents.hotkeys
+        old = (current_hotkeys or {}).get("bindings") or {}
+        new = contents.hotkeys["bindings"]
+        plan.hotkey_changes = sorted(a for a in set(old) | set(new) if a in new and old.get(a) != new.get(a))
+
+    current_history = _read_json(paths.data_dir / "history.json")
+    current_entries = current_history.get("entries", []) if isinstance(current_history, dict) else []
+    known = {e.get("id") for e in current_entries if isinstance(e, dict)}
+    backup_entries = (contents.history or {}).get("entries", []) if contents.history else []
+    for entry in backup_entries:
+        if not isinstance(entry, dict) or not entry.get("id") or not entry.get("path"):
+            continue
+        entry = dict(entry, path=remap_path(str(entry["path"]), pairs))
+        thumb = Path(str(entry.get("thumbnail", "")).replace("\\", "/")).name
+        entry["thumbnail"] = str(paths.data_dir / "thumbnails" / thumb) if thumb in contents.thumbnails else ""
+        if not exists(Path(entry["path"])):
+            plan.history_missing.append(entry["path"])
+        elif entry["id"] not in known:
+            plan.history_added.append(entry)
+    if plan.history_added:
+        limit = _get(plan.settings or current, "history.limit") or 100
+        merged = sorted(current_entries + plan.history_added, key=lambda e: str(e.get("timestamp", "")), reverse=True)
+        plan.history = {"version": 1, "entries": merged[: int(limit)]}
+
+    procedures = paths.data_dir / "procedures"
+    for pid in sorted(contents.procedures):
+        (plan.procedures_skipped if (procedures / pid).exists() else plan.procedures_new).append(pid)
+    return plan
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.stem}-", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def apply_restore(plan: RestorePlan, paths: AppPaths) -> None:
+    """Write the planned files. The running app reloads them afterwards."""
+    try:
+        if plan.settings is not None and plan.settings_changes:
+            _write_json(paths.settings_file, plan.settings)
+        if plan.hotkeys is not None and plan.hotkey_changes:
+            _write_json(paths.hotkeys_file, plan.hotkeys)
+        if plan.history is not None:
+            thumbs = paths.data_dir / "thumbnails"
+            thumbs.mkdir(parents=True, exist_ok=True)
+            for entry in plan.history_added:
+                if entry.get("thumbnail"):
+                    name = Path(entry["thumbnail"]).name
+                    (thumbs / name).write_bytes(plan.contents.thumbnails[name])
+            _write_json(paths.data_dir / "history.json", plan.history)
+        root = paths.data_dir / "procedures"
+        for pid in plan.procedures_new:
+            for rel, data in plan.contents.procedures[pid].items():
+                target = root / pid / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+    except OSError as exc:
+        raise BackupError(f"Restore failed: {exc}", "backup.error.restore") from exc
+    log.info(
+        "Restored %s: %d settings, %d hotkeys, %d history entries, %d procedures",
+        plan.contents.path.name,
+        len(plan.settings_changes),
+        len(plan.hotkey_changes),
+        len(plan.history_added),
+        len(plan.procedures_new),
+    )
