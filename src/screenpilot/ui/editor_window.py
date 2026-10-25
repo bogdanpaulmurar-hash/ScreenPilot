@@ -67,7 +67,20 @@ from PySide6.QtWidgets import (
 from screenpilot.capture.detect import EdgeDetector
 from screenpilot.capture.geometry import Point, Rect
 from screenpilot.capture.image import CapturedImage, CaptureResult
-from screenpilot.editor.document import BOX_KINDS, COLORS, PALETTE, SYMBOLS, EditorDocument, Shape, render, shape_bounds
+from screenpilot.editor.document import (
+    BOX_KINDS,
+    COLORS,
+    PALETTE,
+    SCALED_KINDS,
+    SYMBOLS,
+    EditorDocument,
+    Shape,
+    box_handles,
+    render,
+    resize_box,
+    scaled,
+    shape_bounds,
+)
 from screenpilot.i18n import Translator
 from screenpilot.ui import icons
 from screenpilot.ui.qt_helpers import Retranslator, app_icon, on_escape, qimage_from_captured
@@ -184,6 +197,7 @@ class EditorCanvas(QWidget):
         self._resize: tuple[str, Shape] | None = None
         self._moved = False
         self._crop_draft: Rect | None = None
+        self._crop_resize: tuple[str, Rect] | None = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._render_now)
@@ -427,23 +441,33 @@ class EditorCanvas(QWidget):
         s = self.doc.shapes[index]
         if s.kind in ("line", "arrow"):
             return {"p1": s.p1, "p2": s.p2}
+        if s.kind in SCALED_KINDS:  # text, symbols, step badges: the corners scale the size
+            corners = box_handles(shape_bounds(s))
+            return {k: v for k, v in corners.items() if len(k) == 2}
         if s.kind not in BOX_KINDS:
             return {}
-        b = s.bounds
-        l, t, r, bm = b.x, b.y, b.right - 1, b.bottom - 1
-        cx, cy = (l + r) // 2, (t + bm) // 2
-        return {
-            "nw": Point(l, t), "n": Point(cx, t), "ne": Point(r, t), "e": Point(r, cy),
-            "se": Point(r, bm), "s": Point(cx, bm), "sw": Point(l, bm), "w": Point(l, cy),
-        }
+        return box_handles(s.bounds)
 
-    def handle_at(self, pos: QPointF) -> str | None:
+    def crop_handles(self) -> dict[str, Point]:
+        """With the Crop tool, the kept area can be adjusted by its 8 handles."""
+        crop = self._crop_draft if self._crop_resize is not None else self.doc.crop
+        if self.tool != "crop" or crop is None or self.selected is not None:
+            return {}
+        return box_handles(crop)
+
+    def _handle_near(self, handles: dict[str, Point], pos: QPointF) -> str | None:
         reach = HANDLE_PX + 3
-        for name, point in self.handles().items():
+        for name, point in handles.items():
             v = self.view_point(point)
             if abs(v.x() - pos.x()) <= reach and abs(v.y() - pos.y()) <= reach:
                 return name
         return None
+
+    def handle_at(self, pos: QPointF) -> str | None:
+        return self._handle_near(self.handles(), pos)
+
+    def crop_handle_at(self, pos: QPointF) -> str | None:
+        return self._handle_near(self.crop_handles(), pos)
 
     @staticmethod
     def resized(origin: Shape, handle: str, p: Point, keep_ratio: bool) -> Shape:
@@ -451,31 +475,9 @@ class EditorCanvas(QWidget):
             return replace(origin, p1=p)
         if handle == "p2":
             return replace(origin, p2=p)
-        b = origin.bounds
-        l, t, r, bm = b.x, b.y, b.right - 1, b.bottom - 1  # inclusive corners, like p1/p2
-        if "w" in handle:
-            l = min(p.x, r - MIN_SIZE)
-        if "e" in handle:
-            r = max(p.x, l + MIN_SIZE)
-        if "n" in handle:
-            t = min(p.y, bm - MIN_SIZE)
-        if "s" in handle:
-            bm = max(p.y, t + MIN_SIZE)
-        if keep_ratio and len(handle) == 2 and b.width > 0 and b.height > 0:
-            ratio = b.width / b.height
-            w, h = r - l + 1, bm - t + 1
-            if w / h > ratio:
-                w = max(MIN_SIZE, round(h * ratio))
-            else:
-                h = max(MIN_SIZE, round(w / ratio))
-            if "w" in handle:
-                l = r - w + 1
-            else:
-                r = l + w - 1
-            if "n" in handle:
-                t = bm - h + 1
-            else:
-                bm = t + h - 1
+        if origin.kind in SCALED_KINDS:
+            return scaled(origin, handle, p)
+        l, t, r, bm = resize_box(origin.bounds, handle, p, keep_ratio, MIN_SIZE)
         return replace(origin, p1=Point(l, t), p2=Point(r, bm))
 
     # -- mouse ----------------------------------------------------------------
@@ -497,6 +499,11 @@ class EditorCanvas(QWidget):
         self._moved = False
         # The selected shape's handles work with every tool, so a shape can be adjusted right after
         # it was drawn without switching to Select first.
+        crop_handle = self.crop_handle_at(event.position())
+        if crop_handle is not None:
+            self._crop_resize = (crop_handle, self.doc.crop)
+            self._crop_draft = self.doc.crop
+            return
         handle = self.handle_at(event.position()) if self.selected_shape is not None else None
         if handle is not None:
             self._press = self.to_image(event.position(), clamp=False)  # resizing may go past the edges
@@ -560,6 +567,7 @@ class EditorCanvas(QWidget):
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if self._press is None:
             handle = self.handle_at(event.position()) if self.selected_shape is not None else None
+            handle = handle or self.crop_handle_at(event.position())
             if handle is not None:
                 self.setCursor(HANDLE_CURSORS[handle])
             elif self.tool == "select":
@@ -581,6 +589,12 @@ class EditorCanvas(QWidget):
             self.doc.replace(self.selected, self._move_origin.moved(dx, dy), record=not self._moved)
             self._moved = True
             self.schedule_render()
+            return
+        if self._crop_resize is not None:
+            handle, origin = self._crop_resize
+            l, t, r, bm = resize_box(origin, handle, p, shift, MIN_SIZE)
+            self._crop_draft = Rect(l, t, r - l + 1, bm - t + 1)
+            self.update()
             return
         if self.tool == "crop" and self._crop_draft is not None:
             self._crop_draft = Rect.from_points(self._press, p)
@@ -618,6 +632,7 @@ class EditorCanvas(QWidget):
         self._press = None
         self._move_origin = None
         self._resize = None
+        self._crop_resize = None
         self._moved = False
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -697,6 +712,10 @@ class EditorCanvas(QWidget):
             p.setPen(QPen(QColor(t.accent), 2, Qt.PenStyle.DashLine))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRect(hole)
+            p.setPen(QPen(QColor(t.accent), 1.6))
+            p.setBrush(QColor("#ffffff"))
+            for point in self.crop_handles().values():
+                p.drawEllipse(self.view_point(point), HANDLE_PX, HANDLE_PX)
         shape = self.selected_shape
         if shape is not None:
             accent = QColor(t.accent)
@@ -1105,13 +1124,16 @@ class EditorWindow(QWidget):
         self.tool_buttons[self.canvas.tool].setChecked(True)  # until a symbol is picked
         return popup
 
-    def set_color(self, color: str) -> None:
+    def _show_color(self, color: str) -> None:
         self.canvas.color = color
         self.color_group.setExclusive(False)
         for hex_color, swatch in self.color_buttons.items():
             swatch.setChecked(hex_color.lower() == color.lower())
         self.color_group.setExclusive(True)
         self._update_color_button()
+
+    def set_color(self, color: str) -> None:
+        self._show_color(color)
         self.canvas.restyle_selected(color=color)
         if self.settings is not None:
             self.settings.set("editor.color", color)
@@ -1171,6 +1193,8 @@ class EditorWindow(QWidget):
         self.fill_chip.blockSignals(True)
         self.fill_chip.setChecked(shape.fill)
         self.fill_chip.blockSignals(False)
+        if shape.kind not in ("blur", "pixelate", "spotlight"):
+            self._show_color(shape.color)  # the colour button shows the selected shape's colour
         self._update_hint()
 
     def _update_hint(self) -> None:
