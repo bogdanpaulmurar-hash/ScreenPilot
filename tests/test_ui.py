@@ -813,7 +813,7 @@ class WindowsTests(UiTestCase):
         self.assertEqual(self.app.translator.language, "ro")
         self.controller.trigger("capture.window")
         self.assertTrue(wait_until(lambda: self.captured))
-        for index, name in enumerate(("general", "capture", "modes", "after_capture", "recording", "hotkeys", "diagnostics")):
+        for index, name in enumerate(("general", "capture", "modes", "after_capture", "recording", "hotkeys", "backup", "diagnostics")):
             dialog.tabs.setCurrentIndex(index)
             QApplication.processEvents()
             shot(dialog, f"14_settings_{name}_ro")
@@ -1550,3 +1550,77 @@ class MultiCaptureUiTests(UiTestCase):
         combos[0].setCurrentIndex(combos[0].findData("combined"))
         self.assertEqual(self.app.settings.get("capture.multi_clipboard"), "combined")
         dialog.close()
+
+
+class BackupUiTests(UiTestCase):
+    def test_backup_page_back_up_now_and_restore(self):
+        from unittest import mock
+
+        from screenpilot.core import backup as core
+
+        self.app.settings.set("general.theme", "dark")
+        dialog = self.controller.show_settings("backup")
+        QTest.qWaitForWindowExposed(dialog)
+        shot(dialog, "60_settings_backup")
+        self.assertEqual(dialog.backup_mode.currentData(), "daily")
+        self.assertEqual(dialog.backup_keep.value(), 10)
+        self.assertEqual(dialog.backup_last.text(), "Last backup: never")
+        dialog.backup_now_button.click()
+        folder = Path(self._tmp.name) / "Backups"
+        made = core.list_backups(folder)
+        self.assertEqual(len(made), 1)
+        self.assertTrue(self.app.settings.get("backup.last"))
+        self.assertNotEqual(dialog.backup_last.text(), "Last backup: never")
+        self.assertEqual(self.notes[-1][0], "Backup made")
+        dialog.backup_keep.setValue(3)
+        self.assertEqual(self.app.settings.get("backup.keep"), 3)
+        dialog.backup_mode.setCurrentIndex(dialog.backup_mode.findData("manual"))
+        self.assertEqual(self.app.settings.get("backup.mode"), "manual")
+
+        self.app.settings.set("general.theme", "light")
+        seen = []
+        with mock.patch.object(type(self.controller), "confirm_restore", lambda _s, _p, summary, details: seen.append(summary) or True):
+            self.assertTrue(self.controller.restore_backup(dialog, made[0]))
+        self.assertIn("Settings that change", seen[0])
+        self.assertEqual(self.app.settings.get("general.theme"), "dark")
+        self.assertEqual(self.app.settings.get("backup.mode"), "manual")  # local backup settings kept
+        self.assertTrue(any(p.name.endswith("-before-restore.zip") for p in folder.iterdir()))
+        dialog.close()
+
+    def test_restore_rejects_other_zips_and_cancel_changes_nothing(self):
+        import zipfile
+        from unittest import mock
+
+        from PySide6.QtWidgets import QMessageBox
+
+        other = Path(self._tmp.name) / "other.zip"
+        with zipfile.ZipFile(other, "w") as zf:
+            zf.writestr("readme.txt", "x")
+        with mock.patch.object(QMessageBox, "warning") as warning:
+            self.assertFalse(self.controller.restore_backup(None, other))
+        self.assertIn("not a ScreenPilot backup", warning.call_args[0][2])
+
+        made = self.controller.backup_now()
+        self.app.settings.set("general.theme", "dark")
+        with mock.patch.object(type(self.controller), "confirm_restore", lambda *_a: False):
+            self.assertFalse(self.controller.restore_backup(None, made))
+        self.assertEqual(self.app.settings.get("general.theme"), "dark")
+        with mock.patch.object(QMessageBox, "information") as info:  # nothing differs
+            from screenpilot.core import backup as core
+
+            self.controller.backup_now()
+            latest = core.list_backups(made.parent)[0]
+            self.assertFalse(self.controller.restore_backup(None, latest))
+        self.assertIn("Nothing to restore", info.call_args[0][2])
+
+    def test_backup_action_and_automatic_backup(self):
+        self.assertIn("app.backup_now", self.controller.remote_actions())
+        self.controller.trigger("app.backup_now")
+        self.assertTrue(wait_until(lambda: self.app.settings.get("backup.last")))
+        self.app.settings.set("backup.mode", "every_start")
+        worker = self.controller.auto_backup()
+        self.assertIsNotNone(worker)
+        worker.join(10)
+        self.assertTrue(wait_until(lambda: len(list((Path(self._tmp.name) / "Backups").glob("*.zip"))) == 2))
+        self.app.settings.set("backup.mode", "manual")
+        self.assertIsNone(self.controller.auto_backup())

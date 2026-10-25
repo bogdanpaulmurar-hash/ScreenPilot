@@ -295,5 +295,72 @@ class SettingsReplaceTests(unittest.TestCase):
         self.assertEqual(heard, [("general.theme", "dark")])
 
 
+class AppBackupTests(unittest.TestCase):
+    """The headless layer used by the tray, Settings, the CLI and DevPilot."""
+
+    def setUp(self):
+        from screenpilot.app import create_app
+        from screenpilot.core.logging_setup import close_logging
+        from fixtures import make_backend
+        from test_workflow import FakeClipboard, FakeShell
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(close_logging)
+        self.app = create_app(
+            paths=AppPaths.under(Path(self._tmp.name) / "profile", portable=True),
+            backend=make_backend(),
+            clipboard=FakeClipboard(),
+            shell=FakeShell(),
+        )
+
+    def test_backup_now_remembers_time_and_rotates(self):
+        from screenpilot.app import backup as app_backup
+
+        self.app.settings.set("backup.keep", 2)
+        for minute in range(3):
+            result = app_backup.backup_now(self.app, now=datetime(2026, 10, 25, 8, minute, 0))
+        self.assertEqual(result.path.parent, Path(self._tmp.name) / "profile" / "Backups")
+        self.assertEqual(len(backup.list_backups(result.path.parent)), 2)
+        self.assertEqual(self.app.settings.get("backup.last"), "2026-10-25T08:02:00")
+        self.assertFalse(app_backup.is_due(self.app, now=datetime(2026, 10, 25, 9, 0)))
+        self.app.settings.set("backup.mode", "manual")
+        self.assertFalse(app_backup.is_due(self.app, now=datetime(2026, 10, 26, 9, 0)))
+
+    def test_restore_reloads_live_settings_hotkeys_and_history(self):
+        from screenpilot.app import backup as app_backup
+        from screenpilot.capture import Rect
+
+        self.app.settings.set("general.theme", "dark")
+        self.app.hotkeys.assign("capture.copy", "Ctrl+Alt+K")
+        result = self.app.capture.capture_region(Rect(0, 0, 20, 10))
+        self.app.run_after_capture(result)
+        self.assertEqual(len(self.app.history.entries()), 1)
+        made = app_backup.backup_now(self.app)
+
+        self.app.settings.set("general.theme", "light")
+        self.app.hotkeys.assign("capture.copy", None)
+        self.app.history.clear()
+        heard = []
+        self.app.settings.add_listener(lambda key, value: heard.append(key))
+
+        plan = app_backup.plan_restore(self.app, made.path)
+        self.assertIn("general.theme", plan.settings_changes)
+        self.assertNotIn("backup.last", plan.settings_changes)
+        self.assertEqual(plan.hotkey_changes, ["capture.copy"])
+        self.assertEqual(len(plan.history_added), 1)
+        done = app_backup.restore(self.app, plan)
+
+        self.assertTrue(done.safety.name.endswith("-before-restore.zip"))
+        self.assertEqual(self.app.settings.get("general.theme"), "dark")
+        self.assertIn("general.theme", heard)
+        self.assertEqual(str(self.app.hotkeys.binding("capture.copy")), "Ctrl+Alt+K")
+        self.assertEqual(len(self.app.history.entries()), 1)
+        # the safety copy holds the state from just before the restore
+        safety = backup.read_backup(done.safety)
+        self.assertEqual(safety.settings["general"]["theme"], "light")
+        self.assertEqual(backup.list_backups(made.path.parent), [made.path])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -48,6 +48,7 @@ DEFAULT_BINDINGS: dict[str, str | None] = {
     "record.zoom": None,
     "record.draw": None,
     "app.edit_video": None,  # pen on/off while recording (assign in Settings › Hotkeys)
+    "app.backup_now": None,  # back up settings and saved context (Settings › Backup)
 }
 
 # Combinations Windows reserves or commonly uses; value is an i18n reason key.

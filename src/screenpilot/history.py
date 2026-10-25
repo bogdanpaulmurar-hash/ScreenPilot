@@ -69,6 +69,13 @@ class CaptureHistory:
             self._entries = [e for e in entries if self._exists(Path(e.path))][: self.limit]
         return self
 
+    def reload(self) -> None:
+        """Read the file again (after a restore) and tell the UI."""
+        with self._lock:
+            self._entries = []
+        self.load()
+        self._notify()
+
     def _save(self) -> None:
         self.file.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
