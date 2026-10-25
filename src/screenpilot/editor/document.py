@@ -609,3 +609,61 @@ def render(image: CapturedImage, doc: EditorDocument, *, apply_crop: bool = True
         c = doc.crop
         result = result.crop((c.x, c.y, c.right, c.bottom))
     return CapturedImage.from_pil(result)
+
+
+# -- handles (shared by the editor window; headless so they can be tested without Qt) ------------
+SCALED_KINDS = ("text", "emoji", "step")
+MIN_FONT = {"text": 6, "emoji": 12, "step": 6}
+MAX_FONT = 400
+
+
+def box_handles(b: Rect) -> dict[str, Point]:
+    """8 handles on a box: corners and edge middles (inclusive coordinates, like p1/p2)."""
+    l, t, r, bm = b.x, b.y, b.right - 1, b.bottom - 1
+    cx, cy = (l + r) // 2, (t + bm) // 2
+    return {
+        "nw": Point(l, t), "n": Point(cx, t), "ne": Point(r, t), "e": Point(r, cy),
+        "se": Point(r, bm), "s": Point(cx, bm), "sw": Point(l, bm), "w": Point(l, cy),
+    }
+
+
+def resize_box(b: Rect, handle: str, p: Point, keep_ratio: bool, min_size: int = 6) -> tuple[int, int, int, int]:
+    """Drag ``handle`` of box ``b`` to ``p``; the opposite side stays. Returns inclusive l, t, r, bottom."""
+    l, t, r, bm = b.x, b.y, b.right - 1, b.bottom - 1
+    if "w" in handle:
+        l = min(p.x, r - min_size)
+    if "e" in handle:
+        r = max(p.x, l + min_size)
+    if "n" in handle:
+        t = min(p.y, bm - min_size)
+    if "s" in handle:
+        bm = max(p.y, t + min_size)
+    if keep_ratio and len(handle) == 2 and b.width > 0 and b.height > 0:
+        ratio = b.width / b.height
+        w, h = r - l + 1, bm - t + 1
+        if w / h > ratio:
+            w = max(min_size, round(h * ratio))
+        else:
+            h = max(min_size, round(w / ratio))
+        if "w" in handle:
+            l = r - w + 1
+        else:
+            r = l + w - 1
+        if "n" in handle:
+            t = bm - h + 1
+        else:
+            bm = t + h - 1
+    return l, t, r, bm
+
+
+def scaled(origin: Shape, handle: str, p: Point) -> Shape:
+    """Text, symbols and step badges: a corner handle scales the size; the opposite corner stays put."""
+    b = shape_bounds(origin)
+    l, t, r, bm = resize_box(b, handle, p, True)
+    factor = ((r - l + 1) / max(1, b.width) + (bm - t + 1) / max(1, b.height)) / 2
+    size = max(MIN_FONT.get(origin.kind, 6), min(MAX_FONT, round(origin.font_size * factor)))
+    shape = replace(origin, font_size=size)
+    nb = shape_bounds(shape)
+    ax, nx = (b.x, nb.x) if "e" in handle else (b.right, nb.right)
+    ay, ny = (b.y, nb.y) if "s" in handle else (b.bottom, nb.bottom)
+    return shape.moved(ax - nx, ay - ny)

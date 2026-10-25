@@ -1390,6 +1390,228 @@ class EditorV2Tests(UiTestCase):
         self.assertIsNone(self.controller.procedure)
 
 
+    # -- handles on every shape (0.9.1) ------------------------------------------------
+    def _drag_img(self, canvas, a, b, modifier=None):
+        modifier = modifier if modifier is not None else Qt.KeyboardModifier.NoModifier
+        pa, pb = self._view(canvas, a), self._view(canvas, b)
+        QTest.mousePress(canvas, Qt.MouseButton.LeftButton, modifier, pa)
+        QTest.mouseMove(canvas, pb)
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, modifier, pb)
+
+    def _click_img(self, canvas, p):
+        QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, self._view(canvas, p))
+
+    def test_every_shape_kind_has_handles(self):
+        from PIL import Image
+
+        from screenpilot.editor.document import Shape
+
+        editor = self._editor()
+        canvas, doc = editor.canvas, editor.doc
+        eight = {"nw", "n", "ne", "e", "se", "s", "sw", "w"}
+        for kind in ("rect", "ellipse", "highlight", "blur", "pixelate", "spotlight"):
+            index = doc.add(Shape(kind, Point(60, 60), Point(200, 140)))
+            self.assertEqual(set(canvas.handles(index)), eight, kind)
+        index = editor.insert_pictures([Image.new("RGB", (80, 40), "red")])[0]
+        self.assertEqual(set(canvas.handles(index)), eight, "image")
+        for kind in ("arrow", "line"):
+            index = doc.add(Shape(kind, Point(10, 10), Point(90, 50)))
+            self.assertEqual(set(canvas.handles(index)), {"p1", "p2"}, kind)
+        for kind, text in (("text", "Hi"), ("emoji", "✅"), ("step", "")):
+            index = doc.add(Shape(kind, Point(150, 150), Point(150, 150), text=text))
+            self.assertEqual(set(canvas.handles(index)), {"nw", "ne", "se", "sw"}, kind)
+        editor.close()
+
+    def test_drawn_shape_stays_selected_and_resizes_without_select(self):
+        editor = self._editor()
+        canvas, doc = editor.canvas, editor.doc
+        editor.set_tool("rect")
+        self._drag_img(canvas, Point(100, 80), Point(260, 180))
+        index = len(doc.shapes) - 1
+        self.assertEqual(canvas.selected, index)
+        self.assertEqual(canvas.tool, "rect")
+        before = doc.shapes[index].bounds
+        se = canvas.handles()["se"]
+        self._drag_img(canvas, se, Point(se.x + 50, se.y + 30))  # still the Rectangle tool
+        b = doc.shapes[index].bounds
+        self.assertEqual(len(doc.shapes), index + 1)  # resized, not a second rectangle
+        self.assertGreater(b.width, before.width + 30)
+        self.assertGreater(b.height, before.height + 15)
+        self.assertEqual((b.x, b.y), (before.x, before.y))
+        # a plain click on empty space deselects; a click on the edge selects it again
+        self._click_img(canvas, Point(20, 260))
+        self.assertIsNone(canvas.selected)
+        self.assertEqual(len(doc.shapes), index + 1)
+        self._click_img(canvas, Point(b.x + b.width // 3, b.y))
+        self.assertEqual(canvas.selected, index)
+        # dragging elsewhere still draws a new rectangle, which is then the selected one
+        self._drag_img(canvas, Point(20, 240), Point(80, 300))
+        self.assertEqual(len(doc.shapes), index + 2)
+        self.assertEqual(canvas.selected, index + 1)
+        editor.close()
+
+    def test_text_symbol_and_step_scale_by_a_corner(self):
+        from screenpilot.editor.document import Shape
+
+        editor = self._editor()
+        canvas, doc = editor.canvas, editor.doc
+        editor.set_tool("select")
+        for kind, text in (("text", "Label"), ("emoji", "✅"), ("step", "")):
+            index = doc.add(Shape(kind, Point(260, 160), Point(260, 160), text=text, font_size=20))
+            canvas.refresh()
+            canvas.select(index)
+            se = canvas.handles()["se"]
+            self._drag_img(canvas, se, Point(se.x + 40, se.y + 30))
+            self.assertGreater(doc.shapes[index].font_size, 20, kind)
+            editor.undo()
+            self.assertEqual(doc.shapes[index].font_size, 20, kind)
+        # the text tool: a click on an existing text selects it instead of asking for a new one
+        from unittest import mock
+
+        from PySide6.QtWidgets import QInputDialog
+
+        editor.set_tool("text")
+        with mock.patch.object(QInputDialog, "getMultiLineText", return_value=("", False)) as ask:
+            self._click_img(canvas, Point(300, 172))  # inside "Label", away from the step badge
+        ask.assert_not_called()
+        self.assertEqual(doc.shapes[canvas.selected].kind, "text")
+        editor.close()
+
+    def test_crop_area_can_be_adjusted_with_its_handles(self):
+        editor = self._editor()
+        canvas, doc = editor.canvas, editor.doc
+        editor.set_tool("crop")
+        self._drag_img(canvas, Point(50, 50), Point(250, 200))
+        crop = doc.crop
+        self.assertIsNotNone(crop)
+        handles = canvas.crop_handles()
+        self.assertEqual(len(handles), 8)
+        e = handles["e"]
+        self._drag_img(canvas, e, Point(e.x + 60, e.y))
+        self.assertAlmostEqual(doc.crop.width, crop.width + 60, delta=2)
+        self.assertEqual((doc.crop.x, doc.crop.y, doc.crop.height), (crop.x, crop.y, crop.height))
+        editor.undo()
+        self.assertEqual(doc.crop, crop)
+        editor.set_tool("select")
+        self.assertEqual(canvas.crop_handles(), {})  # only with the Crop tool
+        editor.close()
+
+    def test_selecting_a_shape_shows_its_colour(self):
+        from screenpilot.editor.document import Shape
+
+        editor = self._editor()
+        index = editor.doc.add(Shape("rect", Point(40, 40), Point(140, 100), color="#0067c0"))
+        editor.canvas.refresh()
+        editor.set_color("#d13438")
+        editor.set_tool("select")
+        editor.canvas.select(index)
+        self.assertEqual(editor.canvas.color.lower(), "#0067c0")
+        self.assertTrue(editor.color_buttons["#0067c0"].isChecked())
+        self.assertEqual(editor.doc.shapes[index].color, "#0067c0")  # showing it does not restyle anything
+        editor.close()
+
+    # -- ported from the laptop build's tests ----------------------------------------------
+    def test_ctrl_wheel_zooms_at_the_cursor_and_drawing_still_lands_right(self):
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QWheelEvent
+
+        editor = self._editor()
+        canvas = editor.canvas
+        fit = canvas.scale
+
+        def wheel(pos, notches, modifiers=Qt.KeyboardModifier.NoModifier):
+            angle = QPoint(0, int(120 * notches))
+            event = QWheelEvent(pos, canvas.mapToGlobal(pos), QPoint(), angle, Qt.MouseButton.NoButton, modifiers,
+                                Qt.ScrollPhase.NoScrollPhase, False)
+            QApplication.sendEvent(canvas, event)
+
+        img = editor.result.image
+        pos = canvas.view_point(Point(img.width // 2, img.height // 2))
+        before = canvas.to_image(pos)
+        wheel(pos, 6, Qt.KeyboardModifier.ControlModifier)
+        self.assertGreater(canvas.scale, fit * 1.6)
+        after = canvas.to_image(pos)
+        self.assertLessEqual(abs(after.x - before.x) + abs(after.y - before.y), 2)  # the point under the mouse stays
+        self.assertEqual(editor.zoom_button.text(), f"{round(canvas.scale * 100)} %")
+        editor.set_tool("rect")
+        cx, cy = img.width // 2, img.height // 2
+        self._drag_img(canvas, Point(cx - 20, cy - 10), Point(cx + 20, cy + 20))
+        r = editor.doc.shapes[-1].bounds
+        self.assertLessEqual(abs(r.x - (cx - 20)) + abs(r.y - (cy - 10)), 2)
+        top = canvas.target().top()
+        wheel(pos, -2)  # the plain wheel scrolls the zoomed view
+        self.assertLess(canvas.target().top(), top)
+        wheel(QPointF(pos), -20, Qt.KeyboardModifier.ControlModifier)
+        self.assertAlmostEqual(canvas.scale, fit, places=3)
+        canvas.zoom_to_pixels()
+        self.assertAlmostEqual(canvas.scale, 1.0 / canvas.device_ratio(), places=2)
+        canvas.fit_view()
+        self.assertAlmostEqual(canvas.scale, fit, places=3)
+        editor.close()
+
+    def test_pictures_can_grow_past_the_capture_and_go_below_it(self):
+        from PIL import Image
+
+        editor = self._editor()
+        canvas = editor.canvas
+        w, h = editor.result.image.width, editor.result.image.height
+        index = editor.insert_pictures([Image.new("RGB", (400, 200), (0, 120, 215))])[0]
+        b = editor.doc.shapes[index].bounds
+        corner = Point(b.right - 1, b.bottom - 1)
+        self._drag_img(canvas, corner, Point(corner.x + w, corner.y + h))
+        big = editor.doc.shapes[index].bounds
+        self.assertGreater(big.width, b.width + w // 2)
+        self.assertGreater(editor.doc.extent().width, w)
+        canvas.place_selected("below")
+        placed = editor.doc.shapes[index].bounds
+        self.assertEqual((placed.x, placed.y), (0, h + 16))
+        out = editor.rendered()
+        self.assertEqual(out.height, h + 16 + placed.height)
+        self.assertGreaterEqual(min(out.pixel(5, h + 8)), 240)  # white gap
+        centre = Point(placed.x + placed.width // 2, placed.y + placed.height // 2)
+        self._drag_img(canvas, centre, Point(centre.x, centre.y - h - 16))
+        self.assertEqual(editor.doc.shapes[index].bounds.y, 0)
+        editor.close()
+
+    def test_paste_picture_symbols_colours_and_copy_close(self):
+        from PySide6.QtGui import QImage
+
+        editor = self._editor()
+        canvas = editor.canvas
+        image = QImage(80, 40, QImage.Format.Format_RGB32)
+        image.fill(QColor("#13a10e"))
+        QGuiApplication.clipboard().setImage(image)
+        self.assertEqual(len(editor.paste()), 1)
+        self.assertEqual(editor.doc.shapes[-1].kind, "image")
+        QGuiApplication.clipboard().clear()
+        self.assertEqual(editor.paste(), [])
+        popup = editor.pick_symbol()
+        self.assertIn("✅", popup.buttons)
+        popup.buttons["✅"].click()
+        self.assertEqual(canvas.tool, "emoji")
+        self._click_img(canvas, Point(100, 100))
+        symbol = editor.doc.shapes[-1]
+        self.assertEqual((symbol.kind, symbol.text), ("emoji", "✅"))
+        self.assertEqual(symbol.font_size, canvas.font_size * 2)
+        canvas.select(None)
+        popup = editor.show_color_popup()
+        self.assertIn("#00b7c3", popup.swatches)
+        popup.swatches["#00b7c3"].click()
+        self.assertEqual(canvas.color, "#00b7c3")
+        self.assertFalse(any(b.isChecked() for b in editor.color_buttons.values()))
+        editor.remember_color("#123456")
+        self.assertEqual(editor.recent_colors()[0], "#123456")
+        popup = editor.show_color_popup()
+        self.assertIn("#123456", popup.swatches)
+        popup.close()
+        editor.set_color("#d13438")
+        self.assertTrue(editor.color_buttons["#d13438"].isChecked())
+        editor.copy_and_close()
+        self.assertIsNotNone(self.app.clipboard.image)
+        self.assertEqual(self.app.clipboard.image.width, editor.result.image.width)
+        self.assertTrue(wait_until(lambda: not any(k.startswith("editor-") for k in self.controller._windows)))
+        self.assertEqual(self.captured, [])  # nothing saved, only copied
+
 class HubEditorTests(UiTestCase):
     def test_editor_and_ocr_tiles_and_recent_thumbnail_opens_editor(self):
         hub = self.controller.show_hub()
