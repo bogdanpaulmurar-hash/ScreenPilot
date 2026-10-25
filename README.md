@@ -68,6 +68,30 @@ Captures go to `Pictures\ScreenPilot` and are copied to the clipboard
 (configurable). Put an empty `portable.flag` file in the folder to keep all
 data next to the app.
 
+## Backup and restore
+
+*Settings › Backup* (or **Back up now** in the tray, a shortcut, or DevPilot)
+writes `ScreenPilot-backup-YYYYMMDD-HHMMSS.zip` to a folder you choose
+(default `Documents\ScreenPilot Backups`). It holds the settings, the
+shortcuts, the capture history list with its thumbnails and the procedures
+still being recorded — not the captures and recordings themselves, which stay
+in their folder.
+
+- **Automatic**: once a day when ScreenPilot starts (default), at every start,
+  or manual only. The newest 10 backups are kept (configurable); other files in
+  the folder are never touched.
+- **Restore…** shows what would change (settings, shortcuts, captures added to
+  the history, procedures) before anything is written, and first saves the
+  current state as `…-before-restore.zip`. History and procedures are merged,
+  settings replaced; *Start with Windows* and the backup settings stay as they
+  are on this PC.
+- **Another PC**: paths under another user's profile (`C:\Users\<name>`) are
+  adapted to this PC; captures that are not found are listed and skipped.
+
+```powershell
+python -m screenpilot action app.backup_now
+```
+
 ## Run an action in the running app (shortcuts, scripts, DevPilot)
 
 ```powershell
