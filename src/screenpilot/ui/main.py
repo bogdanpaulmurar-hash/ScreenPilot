@@ -8,6 +8,8 @@ from typing import Sequence
 
 log = logging.getLogger(__name__)
 
+AUTO_BACKUP_DELAY_MS = 10_000  # after start-up settles; the backup itself runs on a worker thread
+
 
 def self_test() -> int:
     """Headless check used by the packaging pipeline: start the core, capture, export diagnostics."""
@@ -196,6 +198,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             import threading
 
             threading.Thread(target=app.recording.windows_encoder, name="mf-probe", daemon=True).start()
+        # "Once a day" / "every start" backup, written in the background a few seconds later.
+        QTimer.singleShot(AUTO_BACKUP_DELAY_MS, controller.auto_backup)
         app.diagnostics.record("app.startup", (time.perf_counter() - started) * 1000, **phases)
         log.info("Desktop UI ready (%s)", ", ".join(f"{k} {v:.0f} ms" for k, v in phases.items()))
 

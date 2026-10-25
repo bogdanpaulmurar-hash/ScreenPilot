@@ -145,6 +145,13 @@
       "section": "Files"
     },
     {
+      "label": "Back up now",
+      "glyph": "E74E",
+      "kind": "Arguments",
+      "arguments": "action app.backup_now",
+      "section": "Files"
+    },
+    {
       "label": "Settings",
       "glyph": "E713",
       "kind": "Arguments",
