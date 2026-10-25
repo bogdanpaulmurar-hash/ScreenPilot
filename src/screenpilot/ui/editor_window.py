@@ -495,29 +495,39 @@ class EditorCanvas(QWidget):
         p = self.to_image(event.position())
         self._press = p
         self._moved = False
+        # The selected shape's handles work with every tool, so a shape can be adjusted right after
+        # it was drawn without switching to Select first.
+        handle = self.handle_at(event.position()) if self.selected_shape is not None else None
+        if handle is not None:
+            self._press = self.to_image(event.position(), clamp=False)  # resizing may go past the edges
+            self._resize = (handle, self.selected_shape)
+            self.freeze_view(True)
+            return
         if self.tool == "select":
-            # moving and resizing may go past the edges: the canvas grows to fit
+            # moving may go past the edges: the canvas grows to fit
             self._press = self.to_image(event.position(), clamp=False)
-            handle = self.handle_at(event.position()) if self.selected_shape is not None else None
-            if handle is not None:
-                self._resize = (handle, self.selected_shape)
-                self.freeze_view(True)
-                return
             hit = self.doc.hit(p)
             self.select(hit)
             if hit is not None:
                 self._move_origin = self.doc.shapes[hit]
                 self.freeze_view(True)
             return
+        if self.tool in ("text", "emoji", "step"):
+            # a click on a shape of the same kind selects it (handles, Delete, style) instead of adding one
+            hit = self.doc.hit(p)
+            if hit is not None and self.doc.shapes[hit].kind == self.tool:
+                self.select(hit)
+                self._press = None
+                return
         if self.tool == "text":
             text, ok = QInputDialog.getMultiLineText(self, self.t("editor.tool.text"), self.t("editor.text.prompt"))
             if ok and text.strip():
-                self.doc.add(self._new_shape("text", p, p, text=text.rstrip()))
+                self.select(self.doc.add(self._new_shape("text", p, p, text=text.rstrip())))
                 self.refresh()
             self._press = None
             return
         if self.tool == "emoji":
-            self.doc.add(self._new_shape("emoji", p, p, text=self.symbol, font_size=self.font_size * 2))
+            self.select(self.doc.add(self._new_shape("emoji", p, p, text=self.symbol, font_size=self.font_size * 2)))
             self.refresh()
             self._press = None
             return
@@ -529,9 +539,9 @@ class EditorCanvas(QWidget):
                 frame = boxes[0] if boxes else None
             if frame is not None:
                 self.doc.add(self._new_shape("rect", Point(frame.x - 2, frame.y - 2), Point(frame.right + 1, frame.bottom + 1), width=3))
-                self.doc.add(self._new_shape("step", Point(frame.x, frame.y), Point(frame.x, frame.y)))
+                self.select(self.doc.add(self._new_shape("step", Point(frame.x, frame.y), Point(frame.x, frame.y))))
             else:
-                self.doc.add(self._new_shape("step", p, p))
+                self.select(self.doc.add(self._new_shape("step", p, p)))
             self.refresh()
             self._press = None
             return
@@ -549,16 +559,17 @@ class EditorCanvas(QWidget):
         p = self.to_image(event.position())
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if self._press is None:
-            if self.tool == "select":
-                handle = self.handle_at(event.position()) if self.selected_shape is not None else None
-                if handle is not None:
-                    self.setCursor(HANDLE_CURSORS[handle])
-                else:
-                    self.setCursor(Qt.CursorShape.SizeAllCursor if self.doc.hit(p) is not None else Qt.CursorShape.ArrowCursor)
+            handle = self.handle_at(event.position()) if self.selected_shape is not None else None
+            if handle is not None:
+                self.setCursor(HANDLE_CURSORS[handle])
+            elif self.tool == "select":
+                self.setCursor(Qt.CursorShape.SizeAllCursor if self.doc.hit(p) is not None else Qt.CursorShape.ArrowCursor)
+            else:
+                self.setCursor(Qt.CursorShape.CrossCursor)
             return
-        if self.tool == "select":
+        if self.tool == "select" or self._resize is not None:
             p = self.to_image(event.position(), clamp=False)
-        if self.tool == "select" and self._resize is not None and self.selected is not None:
+        if self._resize is not None and self.selected is not None:
             handle, origin = self._resize
             keep_ratio = (origin.kind == "image") != shift  # pictures keep their proportions unless Shift
             self.doc.replace(self.selected, self.resized(origin, handle, p, keep_ratio), record=not self._moved)
@@ -595,7 +606,9 @@ class EditorCanvas(QWidget):
         elif self._draft is not None:
             draft, self._draft = self._draft, None
             if max(abs(draft.p2.x - draft.p1.x), abs(draft.p2.y - draft.p1.y)) >= 3:
-                self.doc.add(draft)
+                self.select(self.doc.add(draft))  # stays selected: its handles adjust it right away
+            else:
+                self.select(self.doc.hit(draft.p1))  # a plain click selects the shape under it
             self.refresh()
         elif self._moved:
             self.refresh()
