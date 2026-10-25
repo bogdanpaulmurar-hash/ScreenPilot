@@ -116,6 +116,13 @@ DEFAULTS: dict[str, Any] = {
     "history": {
         "limit": 100,
     },
+    "backup": {
+        "folder": "",  # "" = Documents\ScreenPilot Backups (portable: next to the user data)
+        "mode": "daily",  # "daily" = once a day at start-up, "every_start", "manual"
+        "keep": 10,  # newest backups kept in the folder (safety copies are not counted)
+        "last": "",  # local ISO time of the last successful backup
+        "adapt_paths": True,  # on restore, map C:\Users\<old> paths to this PC's user folder
+    },
     "diagnostics": {
         "verbose_logging": False,
         "timings": True,
