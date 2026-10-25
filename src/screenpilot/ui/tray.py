@@ -92,6 +92,7 @@ class TrayIcon(QSystemTrayIcon):
         for key, slot in (
             ("tray.menu.history", controller.show_history),
             ("tray.menu.open_folder", controller.open_captures_folder),
+            ("tray.menu.backup", lambda: controller.backup_now()),
         ):
             action = QAction(menu)
             rt.bind(action.setText, key)

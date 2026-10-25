@@ -76,6 +76,7 @@ class AppController(QObject):
     interval_changed = Signal()
     procedure_changed = Signal()
     scroll_finished = Signal(object, str, object)  # CaptureResult | None, reason, scroller
+    backup_done = Signal(object, object)  # BackupResult | None, BackupError | None (automatic backup worker)
     scroll_ask = Signal(object)  # {"event": threading.Event, "answer": str} from the scrolling worker
 
     def __init__(self, app: ScreenPilotApp, *, register_hotkeys: bool = True) -> None:
@@ -144,7 +145,9 @@ class AppController(QObject):
             "record.zoom": lambda: self.recording.toggle_zoom(),
             "record.draw": lambda: self.recording.toggle_draw(),
             "app.edit_video": lambda: self.open_video_editor(),
+            "app.backup_now": lambda: self.backup_now(),
         }
+        self.backup_done.connect(self._on_backup_done)
         if register_hotkeys:
             self.register_hotkeys()
 
@@ -1286,6 +1289,157 @@ class AppController(QObject):
         except OSError:
             pass
         return target
+
+    # -- backup -------------------------------------------------------------------
+    def backup_now(self) -> "Path | None":
+        """Tray, Settings, shortcut, DevPilot: write a backup now and say where."""
+        from screenpilot.app import backup as app_backup
+        from screenpilot.core.backup import BackupError
+
+        try:
+            result = app_backup.backup_now(self.app)
+        except BackupError as exc:
+            log.warning("Backup failed: %s", exc)
+            self.notify.emit(self.t("backup.failed"), self.t(exc.message_key, details=str(exc)), True)
+            return None
+        self.notify_action.emit(
+            self.t("backup.done"), self.t("backup.done.body", name=result.path.name), False,
+            lambda: self._reveal(result.path),
+        )
+        return result.path
+
+    def auto_backup(self) -> threading.Thread | None:
+        """Start-up backup ("once a day" / "every start"), written in the background."""
+        from screenpilot.app import backup as app_backup
+        from screenpilot.core.backup import BackupError
+
+        if not app_backup.is_due(self.app):
+            return None
+        settings, hotkeys = self.app.settings.as_dict(), self.app.hotkeys.export_profile()
+
+        def work() -> None:
+            from screenpilot.core import backup as core
+
+            try:
+                result = core.create_backup(
+                    self.app.paths, app_backup.folder(self.app), settings_data=settings,
+                    hotkeys_data=hotkeys, keep=app_backup.keep(self.app),
+                )
+            except BackupError as exc:
+                self.backup_done.emit(None, exc)
+            except Exception as exc:  # noqa: BLE001 - never crash the start-up
+                log.exception("Automatic backup failed")
+                self.backup_done.emit(None, BackupError(str(exc)))
+            else:
+                self.backup_done.emit(result, None)
+
+        worker = threading.Thread(target=work, name="auto-backup", daemon=True)
+        worker.start()
+        return worker
+
+    def _on_backup_done(self, result, error) -> None:
+        from screenpilot.app import backup as app_backup
+
+        if error is not None:
+            log.warning("Automatic backup failed: %s", error)
+            self.notify.emit(self.t("backup.failed"), self.t(error.message_key, details=str(error)), True)
+            return
+        app_backup.remember(self.app, result)
+
+    def restore_backup(self, parent: QWidget | None = None, path: "Path | None" = None) -> bool:
+        """Pick a backup, show what would change, restore after confirmation."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from screenpilot.app import backup as app_backup
+        from screenpilot.core.backup import BackupError
+
+        title = self.t("backup.restore.title")
+        if path is None:
+            start = app_backup.folder(self.app)
+            chosen, _ = QFileDialog.getOpenFileName(
+                parent, title, str(start if start.is_dir() else Path.home()), self.t("backup.filter") + " (*.zip)"
+            )
+            if not chosen:
+                return False
+            path = Path(chosen)
+        try:
+            plan = app_backup.plan_restore(self.app, Path(path))
+        except BackupError as exc:
+            QMessageBox.warning(parent, title, self.t(exc.message_key, details=str(exc)))
+            return False
+        summary, details = self.describe_restore(plan)
+        if not plan.has_changes:
+            QMessageBox.information(parent, title, summary)
+            return False
+        if not self.confirm_restore(parent, summary, details):
+            return False
+        try:
+            done = app_backup.restore(self.app, plan)
+        except BackupError as exc:
+            QMessageBox.warning(parent, title, self.t(exc.message_key, details=str(exc)))
+            return False
+        if done.hotkeys_changed:
+            try:
+                self.app.hotkeys.save(self.app.paths.hotkeys_file)
+            except OSError:
+                log.exception("Could not save restored hotkeys")
+            self.hotkeys_changed.emit()
+        self.notify.emit(title, self.t("backup.restored", safety=done.safety.name), False)
+        return True
+
+    def confirm_restore(self, parent: QWidget | None, summary: str, details: str) -> bool:
+        from PySide6.QtWidgets import QMessageBox
+
+        box = QMessageBox(QMessageBox.Icon.Question, self.t("backup.restore.title"), summary,
+                          QMessageBox.StandardButton.NoButton, parent)
+        restore = box.addButton(self.t("backup.restore.confirm"), QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(restore)
+        if details:
+            box.setDetailedText(details)
+        box.exec()
+        return box.clickedButton() is restore
+
+    def describe_restore(self, plan) -> tuple[str, str]:
+        """Short preview for the confirmation and the full list for "Show details"."""
+        t = self.t
+        created = plan.contents.created.replace("T", " ")[:16]
+        lines = [t("backup.preview.from", name=plan.contents.path.name, date=created,
+                   version=plan.contents.manifest.get("app_version", "?"))]
+        if not plan.has_changes:
+            lines.append(t("backup.preview.nothing"))
+        if plan.settings_changes:
+            lines.append(t("backup.preview.settings", count=len(plan.settings_changes)))
+        if plan.hotkey_changes:
+            lines.append(t("backup.preview.hotkeys", count=len(plan.hotkey_changes)))
+        if plan.history_added:
+            lines.append(t("backup.preview.history", count=len(plan.history_added)))
+        if plan.procedures_new:
+            lines.append(t("backup.preview.procedures", count=len(plan.procedures_new)))
+        if plan.history_missing:
+            lines.append(t("backup.preview.missing", count=len(plan.history_missing)))
+        if plan.remapped and plan.has_changes:
+            old, new = plan.remapped[-1]
+            lines.append(t("backup.preview.paths", old=old, new=new))
+        if plan.has_changes:
+            lines.append(t("backup.preview.safety"))
+        details: list[str] = []
+        if plan.settings_changes:
+            details.append(t("backup.details.settings"))
+            details += [f"  {key}" for key in plan.settings_changes]
+        if plan.hotkey_changes:
+            details.append(t("backup.details.hotkeys"))
+            details += [f"  {t('action.' + a) if self.app.translator.has('action.' + a) else a}" for a in plan.hotkey_changes]
+        if plan.history_missing:
+            details.append(t("backup.details.missing"))
+            details += [f"  {p}" for p in plan.history_missing]
+        return "\n".join(lines), "\n".join(details)
+
+    def _reveal(self, path: Path) -> None:
+        try:
+            self.app.shell.reveal(path)
+        except OSError:
+            log.exception("Could not open %s", path)
 
     def open_log_folder(self) -> None:
         try:

@@ -97,6 +97,7 @@ class SettingsDialog(QDialog):
             ("workflow", "settings.nav.after_capture", self._build_after_capture),
             ("video", "settings.nav.recording", self._build_recording),
             ("keyboard", "settings.nav.hotkeys", self._build_hotkeys),
+            ("shield", "settings.nav.backup", self._build_backup),
             ("settings", "settings.nav.diagnostics", self._build_diagnostics),
         ):
             item = QListWidgetItem()
@@ -142,7 +143,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(right, 1)
 
     def show_page(self, name: str) -> None:
-        """Select a page by its short name: general, capture, modes, after_capture, recording, hotkeys, diagnostics."""
+        """Select a page by its short name: general, capture, modes, after_capture, recording, hotkeys, backup, diagnostics."""
         index = self.page_index.get(name)
         if index is not None:
             self.nav.setCurrentRow(index)
@@ -936,6 +937,136 @@ class SettingsDialog(QDialog):
             combo.blockSignals(False)
         if not devices:
             self.controller.notify.emit(self.t("settings.rec.devices"), self.t("settings.rec.devices.none"), False)
+
+    # -- backup ---------------------------------------------------------------
+    def _build_backup(self) -> QWidget:
+        from screenpilot.core import backup as core
+
+        page, column = self._column()
+        intro = label(role="secondary", wrap=True)
+        self.rt.bind(intro.setText, "backup.contents")
+        column.addWidget(intro)
+
+        folder_box = QWidget()
+        folder_row = QHBoxLayout(folder_box)
+        folder_row.setContentsMargins(0, 0, 0, 0)
+        self.backup_folder = QLineEdit(self.settings.get("backup.folder"))
+        self.backup_folder.setMinimumWidth(260)
+        self.backup_folder.setPlaceholderText(str(core.default_folder(self.app.paths)))
+        self.backup_folder.editingFinished.connect(lambda: self._set_backup_folder(self.backup_folder.text().strip()))
+        browse = QPushButton()
+        self.rt.bind(browse.setText, "backup.browse")
+        browse.clicked.connect(self._browse_backup)
+        folder_row.addWidget(self.backup_folder, 1)
+        folder_row.addWidget(browse)
+        column.addWidget(
+            self._row("folder", "backup.folder", "backup.folder.desc", self._lock(folder_box, "backup.folder"),
+                      path=str(core.default_folder(self.app.paths)))
+        )
+        self.backup_cloud = label(role="caption", wrap=True)
+        self.rt.bind(self.backup_cloud.setText, "backup.cloud_warning")
+        self.backup_cloud.setStyleSheet("padding: 6px 10px; background: rgba(255,185,0,0.18); border-radius: 4px;")
+        column.addWidget(self.backup_cloud)
+
+        self.backup_mode = QComboBox()
+        self.backup_mode.setMinimumWidth(240)
+        for mode in core.MODES:
+            self.backup_mode.addItem("", mode)
+        self._retranslate_backup_mode()
+        self.rt.on_change(self._retranslate_backup_mode)
+        self.backup_mode.setCurrentIndex(max(0, self.backup_mode.findData(self.settings.get("backup.mode"))))
+        self.backup_mode.currentIndexChanged.connect(lambda _i: self._set("backup.mode", self.backup_mode.currentData()))
+        column.addWidget(self._row("history", "backup.mode", "backup.mode.desc", self._lock(self.backup_mode, "backup.mode")))
+
+        self.backup_keep = QSpinBox()
+        self.backup_keep.setRange(1, core.MAX_KEEP)
+        self.backup_keep.setValue(self.settings.get("backup.keep"))
+        self.backup_keep.valueChanged.connect(lambda v: self._set("backup.keep", v))
+        column.addWidget(self._row("copy", "backup.keep", "backup.keep.desc", self._lock(self.backup_keep, "backup.keep")))
+        column.addWidget(
+            self._row("monitors", "backup.adapt_paths", "backup.adapt_paths.desc", self._toggle("backup.adapt_paths"))
+        )
+
+        card = Card(padding=16, spacing=8)
+        self.backup_last = label(role="body")
+        card.body.addWidget(self.backup_last)
+        buttons = QHBoxLayout()
+        self.backup_now_button = QPushButton()
+        self.backup_now_button.setProperty("accent", True)
+        self.rt.bind(self.backup_now_button.setText, "backup.now")
+        self.backup_now_button.clicked.connect(self._backup_now)
+        restore = QPushButton()
+        self.rt.bind(restore.setText, "backup.restore")
+        restore.clicked.connect(lambda: self.controller.restore_backup(self))
+        self.backup_restore_button = restore
+        open_folder = QPushButton()
+        self.rt.bind(open_folder.setText, "backup.open_folder")
+        open_folder.clicked.connect(self._open_backup_folder)
+        buttons.addWidget(self.backup_now_button)
+        buttons.addWidget(restore)
+        buttons.addStretch(1)
+        buttons.addWidget(open_folder)
+        card.body.addLayout(buttons)
+        column.addWidget(card)
+        column.addStretch(1)
+
+        self._update_backup_status()
+        self.rt.on_change(self._update_backup_status)
+        remove = self.settings.add_listener(
+            lambda key, _value: self._update_backup_status() if key.startswith("backup.") else None
+        )
+        self.destroyed.connect(lambda *_: remove())
+        return page
+
+    def _retranslate_backup_mode(self) -> None:
+        for i in range(self.backup_mode.count()):
+            self.backup_mode.setItemText(i, self.t(f"backup.mode.{self.backup_mode.itemData(i)}"))
+
+    def _update_backup_status(self) -> None:
+        from datetime import datetime
+
+        from screenpilot.app import backup as app_backup
+        from screenpilot.core import backup as core
+
+        last = self.settings.get("backup.last") or ""
+        try:
+            when = datetime.fromisoformat(last).strftime("%d.%m.%Y %H:%M") if last else ""
+        except ValueError:
+            when = ""
+        self.backup_last.setText(self.t("backup.last", when=when) if when else self.t("backup.last.never"))
+        self.backup_cloud.setVisible(core.is_cloud_folder(app_backup.folder(self.app)))
+
+    def _set_backup_folder(self, folder: str) -> None:
+        if folder != self.settings.get("backup.folder"):
+            self._set("backup.folder", folder)
+
+    def _browse_backup(self) -> None:
+        from screenpilot.app import backup as app_backup
+
+        start = app_backup.folder(self.app)
+        chosen = QFileDialog.getExistingDirectory(self, self.t("backup.folder"), str(start if start.is_dir() else Path.home()))
+        if chosen:
+            self.backup_folder.setText(chosen)
+            self._set_backup_folder(chosen)
+
+    def _backup_now(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            self.controller.backup_now()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _open_backup_folder(self) -> None:
+        from screenpilot.app import backup as app_backup
+
+        folder = app_backup.folder(self.app)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            self.app.shell.reveal(folder)
+        except OSError:
+            log.exception("Could not open %s", folder)
 
     def _build_diagnostics(self) -> QWidget:
         page, column = self._column()
