@@ -88,6 +88,7 @@ class AppController(QObject):
         self.bridge.event.connect(self._on_event)
         self.selector = RegionSelector(app.translator, self)
         self.selector.finished.connect(self._on_region_selected)
+        self.selector.clip_mode_changed.connect(self._on_clip_mode_changed)
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="Workflow")
         self._windows: dict[str, QWidget] = {}
         self._countdown: CountdownOverlay | None = None
@@ -274,9 +275,21 @@ class AppController(QObject):
         except ScreenPilotError as exc:
             self.notify.emit(self.t("notify.failed.title"), self.t(exc.message_key), True)
             return
-        self.selector.start(frozen, monitors, windows, self._frame_provider(frozen), self.selector_style(mode.id))
+        settings = self.app.settings
+        self.selector.start(
+            frozen, monitors, windows, self._frame_provider(frozen), self.selector_style(mode.id),
+            clip_mode=settings.get("capture.multi_clipboard"),
+            clip_locked=settings.is_locked("capture.multi_clipboard"),
+        )
         QTimer.singleShot(0, self._selector_shown)
         self.watch_escape()
+
+    def _on_clip_mode_changed(self, mode: str) -> None:
+        """Switched in the selector: remembered, like the choice in Settings › Capture."""
+        try:
+            self.app.settings.set("capture.multi_clipboard", mode)
+        except ScreenPilotError:
+            log.info("capture.multi_clipboard is locked by policy")
 
     def _selector_shown(self) -> None:
         started = getattr(self, "_selector_started", None)
