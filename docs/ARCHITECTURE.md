@@ -130,6 +130,17 @@ The scrolling capture worker can block on a question (Esc → continue / stop /
 discard): it emits a Qt signal with a `threading.Event`, the GUI thread shows
 the dialog and sets the answer.
 
+The progress pill (`ui.preview.ScrollIndicator`) has an OK button that
+finishes the capture and keeps it, in automatic and manual mode alike. The
+pill never activates or takes focus (`WindowDoesNotAcceptFocus` +
+`WA_ShowWithoutActivating`, plus `WS_EX_NOACTIVATE` via
+`platform.win32_window.set_no_activate`), so the captured app keeps the
+keyboard; it sits outside the region and is excluded from capture
+(`SetWindowDisplayAffinity`). The worker reads two `threading.Event`s through
+`capture_scrolling(finish=, hold=)`: `finish` (OK pressed) and `hold` (mouse
+on the pill: automatic scrolling waits so the scroller does not pull the
+cursor away from the button). Esc keeps working as before.
+
 UI flows (selector, countdowns, recording, interval capture) poll Esc every
 60 ms with a `KeyLatch` (one event per press) while one of them is active; the
 timer stops by itself afterwards. The selector overlay takes focus with

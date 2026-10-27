@@ -676,10 +676,16 @@ class AppController(QObject):
         from screenpilot.ui.preview import ScrollIndicator
 
         manual = options.setdefault("manual", self.app.settings.get("capture.scroll_mode") == "manual")
-        anchor = physical_to_logical(Point(rect.x, rect.bottom), self.app.capture.monitors())
-        indicator = ScrollIndicator(self.app.translator, anchor, manual=manual)
+        monitors = self.app.capture.monitors()
+        anchor = physical_to_logical(Point(rect.x, rect.bottom), monitors)
+        top = physical_to_logical(Point(rect.x, rect.y), monitors).y()
+        indicator = ScrollIndicator(self.app.translator, anchor, manual=manual, top=top)
         self._scroll_indicator = indicator
         indicator.show_near()
+        # OK on the pill finishes like Esc (keeps what was captured, no question);
+        # hovering it pauses automatic scrolling so the cursor stays on the button
+        options.setdefault("finish", indicator.finished.is_set)
+        options.setdefault("hold", indicator.hovered.is_set)
         if manual:
             scroller.restore_cursor = lambda: None  # the user moved the mouse; leave it where it is
         else:

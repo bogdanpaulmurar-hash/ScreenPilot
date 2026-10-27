@@ -266,6 +266,62 @@ class ScrollingUiTests(UiTestCase):
         shot(self.controller._preview, "21_preview_after_scrolling")
         del win
 
+    def _start_slow_scroll(self, **options):
+        import time as _time
+
+        win = self._fake_window()
+        win.step = 10  # many small steps: time to click OK
+        self.controller.start_scrolling(Rect(0, 0, 420, 300), settle=lambda: _time.sleep(0.03), **options)
+        indicator = self.controller._scroll_indicator
+        self.assertIsNotNone(indicator)
+        return win, indicator
+
+    def test_ok_button_finishes_without_focus_or_question(self):
+        from test_scrolling import HEADER, PAGE_H
+
+        asked = []
+        self.controller.ask_continue = lambda *a, **k: asked.append(a) or "cancel"
+        win, indicator = self._start_slow_scroll()
+        flags = indicator.windowFlags()
+        self.assertTrue(flags & Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.assertFalse(flags & Qt.WindowType.WindowTransparentForInput)  # clickable
+        self.assertEqual(indicator.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertTrue(indicator.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
+        self.assertTrue(wait_until(lambda: win.scrolls >= 2))
+        shot(indicator, "20b_scroll_indicator_ok")
+        QTest.mouseClick(indicator, Qt.MouseButton.LeftButton, pos=indicator.ok_rect().center().toPoint())
+        self.assertTrue(wait_until(lambda: self.captured, timeout=20))
+        result = self.captured[0][0]
+        self.assertEqual(result.metadata["scroll_end"], "stopped")
+        self.assertLess(result.image.height, HEADER + PAGE_H)
+        self.assertEqual(asked, [])
+        self.assertFalse(QApplication.focusWindow() is not None and QApplication.focusWindow() is indicator.windowHandle())
+        self.assertIsNone(self.controller._scroll_indicator)
+
+    def test_click_beside_ok_does_nothing_and_hover_holds(self):
+        win, indicator = self._start_slow_scroll()
+        self.assertTrue(wait_until(lambda: win.scrolls >= 1))
+        QTest.mouseClick(indicator, Qt.MouseButton.LeftButton, pos=QPoint(20, indicator.height() // 2))
+        self.assertFalse(indicator.finished.is_set())
+        indicator.hovered.set()  # the mouse rests on the pill
+        QApplication.processEvents()
+        import time as _time
+
+        _time.sleep(0.3)
+        held = win.scrolls
+        _time.sleep(0.4)
+        self.assertLessEqual(win.scrolls - held, 0)
+        indicator.finish()
+        self.assertTrue(wait_until(lambda: self.captured, timeout=20))
+        self.assertEqual(self.captured[0][0].metadata["scroll_end"], "stopped")
+
+    def test_ok_button_finishes_manual_scrolling(self):
+        win, indicator = self._start_slow_scroll(manual=True)
+        self.assertTrue(indicator.manual)
+        QTest.mouseClick(indicator, Qt.MouseButton.LeftButton, pos=indicator.ok_rect().center().toPoint())
+        self.assertTrue(wait_until(lambda: self.captured, timeout=20))
+        self.assertEqual(self.captured[0][0].mode, "scrolling")
+
 
 class CaptureModeTests(UiTestCase):
     def test_mode_hotkeys_open_coloured_selector_with_their_enter_action(self):

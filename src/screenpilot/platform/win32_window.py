@@ -57,6 +57,8 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI
     _GetWindowLong.restype = ctypes.c_ssize_t
     _SetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
     _SetWindowLong.restype = ctypes.c_ssize_t
+    _user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
+    _user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
 
 GWL_EXSTYLE = -20
 WS_EX_TRANSPARENT = 0x00000020
@@ -84,6 +86,37 @@ def set_click_through(hwnd: int, on: bool) -> bool:
         return True
     except Exception:  # noqa: BLE001
         log.debug("set_click_through failed", exc_info=True)
+        return False
+
+
+def set_no_activate(hwnd: int) -> bool:
+    """Window ``hwnd`` never activates or takes focus, even when clicked.
+
+    Used for buttons floating over another app (the scrolling capture's OK),
+    so that app keeps the keyboard focus.
+    """
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:  # pragma: no cover - Windows only
+        handle = wintypes.HWND(int(hwnd))
+        _SetWindowLong(handle, GWL_EXSTYLE, _GetWindowLong(handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE)
+        return True
+    except Exception:  # noqa: BLE001
+        log.debug("set_no_activate failed", exc_info=True)
+        return False
+
+
+WDA_EXCLUDEFROMCAPTURE = 0x11
+
+
+def exclude_from_capture(hwnd: int) -> bool:
+    """Hide window ``hwnd`` from screenshots and recordings (Windows 10 2004+)."""
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:  # pragma: no cover - Windows only
+        return bool(_user32.SetWindowDisplayAffinity(wintypes.HWND(int(hwnd)), WDA_EXCLUDEFROMCAPTURE))
+    except Exception:  # noqa: BLE001
+        log.debug("exclude_from_capture failed", exc_info=True)
         return False
 
 
