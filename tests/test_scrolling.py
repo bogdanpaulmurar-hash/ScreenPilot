@@ -363,3 +363,85 @@ class OkButtonTests(unittest.TestCase):
             Rect(0, 0, W, VIEW_H), win, manual=True, sleep=lambda s: None, hold=lambda: True, finish=lambda: False
         )
         self.assertEqual(reason, "end")
+
+
+class FileListWindow:
+    """A file list like Explorer: similar rows, the row under the mouse highlighted, a focused item."""
+
+    ROW, TOP = 43, 40
+
+    def __init__(self, view_h: int, items: int, step_rows: int = 3, hover_y: int | None = None):
+        self.view_h, self.items = view_h, items
+        self.offset, self.scrolls = 0, 0
+        self.step = step_rows * self.ROW
+        self.hover_y = view_h // 2 if hover_y is None else hover_y
+
+    @property
+    def max_offset(self) -> int:
+        return max(0, self.items * self.ROW - (self.view_h - self.TOP))
+
+    @property
+    def full_height(self) -> int:
+        return self.TOP + self.items * self.ROW
+
+    def view(self) -> Image.Image:
+        img = Image.new("RGB", (W, self.view_h), "white")
+        d = ImageDraw.Draw(img)
+        for i in range(self.items):
+            y = self.TOP + i * self.ROW - self.offset
+            if y + self.ROW < self.TOP or y > self.view_h:
+                continue
+            if y <= self.hover_y < y + self.ROW:
+                d.rectangle((10, y + 2, W - 40, y + self.ROW - 3), fill=(229, 243, 255))
+            if i == 14:
+                d.rectangle((10, y + 2, W - 40, y + self.ROW - 3), outline=(0, 0, 0))
+            d.rectangle((16, y + 12, 30, y + 28), fill=(240, 200, 80))
+            d.text((40, y + 14), f"file {i}.txt", fill=(0, 0, 0))
+            d.text((200, y + 14), "27.10.2026", fill=(80, 80, 80))
+        d.rectangle((0, 0, W, self.TOP - 1), fill=(245, 245, 245))
+        d.text((40, 12), "Name     Date modified", fill=(90, 90, 90))
+        return img
+
+    def grab(self, rect: Rect) -> CapturedImage:
+        return CapturedImage.from_pil(self.view())
+
+    def scroll(self, rect: Rect, notches: int) -> None:
+        self.scrolls += 1
+        self.offset = min(self.max_offset, self.offset + self.step * notches)
+
+    def stop_requested(self) -> bool:
+        return False
+
+
+class FileListScrollingTests(unittest.TestCase):
+    """Explorer-like lists repeated rows at the end of the list (hover highlight + partial last scroll)."""
+
+    def test_automatic_no_rows_twice(self):
+        for view_h in (300, 337, 411, 600, 900):
+            for items in (21, 30):
+                with self.subTest(view_h=view_h, items=items):
+                    win = FileListWindow(view_h, items)
+                    image, reason = capture_scrolling(win.grab, Rect(0, 0, W, view_h), win, settle=lambda: None)
+                    self.assertEqual(reason, "end")
+                    self.assertEqual(image.height, win.full_height)  # one row too many = a row twice
+
+    def test_manual_no_rows_twice(self):
+        from screenpilot.capture.scrolling import capture_scrolling_manual
+
+        for view_h in (300, 522, 596, 744):
+            with self.subTest(view_h=view_h):
+                win = FileListWindow(view_h, 30, step_rows=3, hover_y=view_h // 3)
+                polls = {"n": 0}
+
+                def grab(rect, win=win, polls=polls):
+                    polls["n"] += 1
+                    if polls["n"] > 3 and polls["n"] % 3 == 0 and win.offset < win.max_offset:
+                        win.scroll(rect, 1)  # the user turns the wheel with the mouse on the list
+                    return CapturedImage.from_pil(win.view())
+
+                win.stop_requested = lambda win=win, polls=polls: win.offset >= win.max_offset and polls["n"] > 10
+                image, reason = capture_scrolling_manual(
+                    grab, Rect(0, 0, W, view_h), win, sleep=lambda s: None, clock=lambda: 0.0
+                )
+                self.assertEqual(image.height, win.full_height)
+
