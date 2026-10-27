@@ -2,6 +2,10 @@
 
 Per-release details: `docs/releases/<version>.md`.
 
+## 0.9.5 — 2026-10-27
+- Scrolling capture: a floating box over the page (chat input) is detected and kept once at the end instead of being pasted at every step; a blinking caret no longer makes every step wait for the view to settle.
+- Tests (Linux, offscreen Qt): 385 passed, 9 skipped (Windows-only). New: `FloatingBoxScrollingTests` (+ caret tests); 7 fail on 0.9.4. Reproduced in simulation only, not yet on the real VS Code panel.
+
 ## 0.9.4 — 2026-10-27
 - Scrolling capture: no repeated rows in Explorer-like lists (hover highlight under the mouse, partial last scroll); manual mode no longer skips those frames. Reported on the laptop with an Explorer folder.
 - Tests (Linux, offscreen Qt): 381 passed, 9 skipped (Windows-only). New: `FileListScrollingTests` (2 tests, 14 cases; they fail on 0.9.3).
