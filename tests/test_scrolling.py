@@ -486,6 +486,19 @@ class FloatingBoxScrollingTests(unittest.TestCase):
                 self.assertEqual(len(borders), 2, borders)  # top and bottom border of ONE box
                 self.assertGreaterEqual(borders[0], image.height - box - gap - 2)  # at the very end
 
+    def test_the_box_block_shows_the_end_of_the_page_not_the_start(self):
+        """Around and behind the box the page is visible; that block must come from the last
+        frame (end of the page), not from the first (a faded section from elsewhere)."""
+        win = FloatingBoxWindow(90, 14, 70)
+        image, _ = capture_scrolling(win.grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None)
+        final = win.view().convert("RGB")
+        result = image.to_pil().convert("RGB")
+        block = 90 + 14
+        strip = (0, 0, 50, block)  # page content left of the box
+        got = result.crop((0, result.height - block, 50, result.height))
+        want = final.crop((0, VIEW_H - block, 50, VIEW_H))
+        self.assertEqual(got.tobytes(), want.tobytes())
+
     def test_manual_mode_keeps_the_box_once(self):
         from screenpilot.capture.scrolling import capture_scrolling_manual
 
