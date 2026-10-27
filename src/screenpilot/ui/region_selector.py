@@ -85,6 +85,10 @@ ACTION_RECORD_GIF = "record_gif"
 # What a confirmation of several regions can do (the other actions need one region).
 MULTI_ACTIONS = (ACTION_DEFAULT, ACTION_COPY, ACTION_EDIT)
 
+# How several regions go to the clipboard (setting ``capture.multi_clipboard``).
+CLIP_SEQUENCE = "sequence"
+CLIP_COMBINED = "combined"
+
 HANDLE_CURSORS = {
     "nw": Qt.CursorShape.SizeFDiagCursor,
     "se": Qt.CursorShape.SizeFDiagCursor,
@@ -158,6 +162,7 @@ class ActionBar(QFrame):
 
     triggered = Signal(str)
     cancelled = Signal()
+    clip_toggled = Signal()  # several regions: switch "one by one" / "one image"
 
     def __init__(self, parent: QWidget, translator: Translator, accent: QColor | None = None) -> None:
         super().__init__(parent)
@@ -205,6 +210,9 @@ class ActionBar(QFrame):
                 button.clicked.connect(self.cancelled.emit)
             elif action is not None:
                 button.clicked.connect(lambda _=False, a=action: self.triggered.emit(a))
+            if icon_name == "close":
+                self.clip_button = self._make_clip_button()
+                row.addWidget(self.clip_button)
             if icon_name in ("edit", "close"):
                 sep = QFrame(self)
                 sep.setFixedSize(1, 20)
@@ -213,15 +221,40 @@ class ActionBar(QFrame):
             row.addWidget(button)
             self.buttons[action or icon_name] = button
         self.multi = False
+        self.clip_mode = CLIP_SEQUENCE
+        self.set_clip_mode(CLIP_SEQUENCE)
+        self.clip_button.hide()
+        self.adjustSize()
+
+    def _make_clip_button(self) -> QToolButton:
+        button = QToolButton(self)
+        button.setObjectName("ClipMode")
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        button.setIcon(icons.icon("copy", "#ffffff", 18, "#6b6b6b"))
+        button.setIconSize(QSize(18, 18))
+        button.setStyleSheet("QToolButton#ClipMode { color: white; padding: 6px 8px; }")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.clicked.connect(self.clip_toggled.emit)
+        return button
+
+    def set_clip_mode(self, mode: str, *, locked: bool = False) -> None:
+        """Label of the clipboard switch shown with several regions."""
+        self.clip_mode = mode
+        self.clip_button.setIcon(icons.icon("image" if mode == CLIP_COMBINED else "copy", "#ffffff", 18, "#6b6b6b"))
+        self.clip_button.setText(self.t(f"selector.multi.clipboard.{mode}"))
+        self.clip_button.setToolTip(self.t("selector.multi.clipboard.locked" if locked else "selector.multi.clipboard.tooltip"))
+        self.clip_button.setEnabled(not locked)
         self.adjustSize()
 
     def set_multi(self, multi: bool) -> None:
-        """Several regions: only the actions that make sense for all of them."""
+        """Several regions: only the actions that make sense for all of them, plus the clipboard switch."""
         if multi == self.multi:
             return
         self.multi = multi
         for action, button in self.buttons.items():
             button.setVisible(not multi or action in MULTI_ACTIONS or action == "cancel")
+        self.clip_button.setVisible(multi)
         self.adjustSize()
 
 
@@ -230,6 +263,7 @@ class MonitorOverlay(QWidget):
     confirmed = Signal(object, str)  # Rect, or list[Rect] for several regions; action
     cancelled = Signal()
     regions_changed = Signal()
+    clip_toggled = Signal()
 
     def __init__(
         self,
@@ -276,6 +310,7 @@ class MonitorOverlay(QWidget):
         self.action_bar.hide()
         self.action_bar.triggered.connect(self._confirm)
         self.action_bar.cancelled.connect(self.cancelled.emit)
+        self.action_bar.clip_toggled.connect(self.clip_toggled.emit)
 
     # -- coordinate mapping ---------------------------------------------------
     @property
@@ -465,6 +500,8 @@ class MonitorOverlay(QWidget):
             self._confirm(ACTION_OCR)
         elif key == Qt.Key.Key_R and not ctrl:
             self._confirm(ACTION_RECORD)
+        elif key == Qt.Key.Key_M and not ctrl and self.action_bar.multi:
+            self.clip_toggled.emit()
         elif key in arrows:
             dx, dy = arrows[key]
             self.model.nudge(dx, dy, resize=resize)
@@ -581,6 +618,10 @@ class MonitorOverlay(QWidget):
         metrics = p.fontMetrics()
         w, h = min(self.width() - 32, metrics.horizontalAdvance(text) + 40), metrics.height() + 18
         self._pill(p, QRectF((self.width() - w) / 2, 24, w, h), text)
+        mode = self.translator.t(f"selector.multi.clipboard.{self.action_bar.clip_mode}")
+        clip = self.translator.t("selector.multi.clipboard.status", mode=mode)
+        w2 = min(self.width() - 32, metrics.horizontalAdvance(clip) + 40)
+        self._pill(p, QRectF((self.width() - w2) / 2, 24 + h + 6, w2, h), clip)
 
     def _paint_handles(self, p: QPainter) -> None:
         p.setPen(QPen(self._accent, 2))
@@ -687,6 +728,7 @@ class RegionSelector(QObject):
     """Shows overlays on all monitors and reports the chosen rectangle and action."""
 
     finished = Signal(object)  # (Rect, action), (list[Rect], action) for several regions, or None
+    clip_mode_changed = Signal(str)  # the user switched how several regions are copied
 
     def __init__(self, translator: Translator, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -694,6 +736,8 @@ class RegionSelector(QObject):
         self.overlays: list[MonitorOverlay] = []
         self.frozen: CaptureResult | None = None
         self.regions = RegionList()
+        self.clip_mode = CLIP_SEQUENCE
+        self.clip_locked = False
 
     @property
     def active(self) -> bool:
@@ -706,11 +750,16 @@ class RegionSelector(QObject):
         windows: Sequence[WindowInfo],
         frames: Callable[[Point, WindowInfo | None], Sequence[Rect]] | None = None,
         style: SelectorStyle | None = None,
+        *,
+        clip_mode: str = CLIP_SEQUENCE,
+        clip_locked: bool = False,
     ) -> None:
         if self.overlays:
             return
         self.frozen = frozen
         self.regions = RegionList()
+        self.clip_mode = CLIP_COMBINED if clip_mode == CLIP_COMBINED else CLIP_SEQUENCE
+        self.clip_locked = clip_locked
         image = qimage_from_captured(frozen.image)
         origin = Point(frozen.region.x, frozen.region.y)
         cursor = QCursor.pos()
@@ -720,6 +769,8 @@ class RegionSelector(QObject):
             overlay.regions_changed.connect(self._on_regions_changed)
             overlay.confirmed.connect(lambda rect, action: self._finish((rect, action)))
             overlay.cancelled.connect(lambda: self._finish(None))
+            overlay.clip_toggled.connect(self.toggle_clip_mode)
+            overlay.action_bar.set_clip_mode(self.clip_mode, locked=clip_locked)
             self.overlays.append(overlay)
             overlay.show()
             if screen.geometry().contains(cursor):
@@ -746,6 +797,16 @@ class RegionSelector(QObject):
     def cancel(self) -> None:
         if self.overlays:
             self._finish(None)
+
+    def toggle_clip_mode(self) -> None:
+        """Several regions: switch between one by one and one image, before Enter."""
+        if self.clip_locked:
+            return
+        self.clip_mode = CLIP_SEQUENCE if self.clip_mode == CLIP_COMBINED else CLIP_COMBINED
+        for overlay in self.overlays:
+            overlay.action_bar.set_clip_mode(self.clip_mode)
+            overlay._changed()
+        self.clip_mode_changed.emit(self.clip_mode)
 
     def _on_pressed(self, source: MonitorOverlay, keep: bool = False) -> None:
         for overlay in self.overlays:

@@ -1785,6 +1785,51 @@ class MultiCaptureUiTests(UiTestCase):
         self.assertEqual(self.app.history.entries(), [])
         self.assertTrue(any(n[0] == "2 captures copied" for n in self.notes))
 
+    def test_clipboard_switch_in_the_selector_before_enter(self):
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        bar = overlay.action_bar
+        self.assertTrue(bar.clip_button.isVisible())
+        self.assertEqual(bar.clip_button.text(), "One by one")
+        QTest.mouseClick(bar.clip_button, Qt.MouseButton.LeftButton)
+        self.assertEqual(bar.clip_mode, "combined")
+        self.assertEqual(bar.clip_button.text(), "One image")
+        self.assertEqual(self.app.settings.get("capture.multi_clipboard"), "combined")  # remembered
+        self.assertTrue(overlay.hasFocus() or not overlay.isActiveWindow())  # the button took no focus
+        shot(overlay, "72_selector_multi_clipboard_switch")
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: self.copies))
+        QTest.qWait(200)
+        self.assertEqual(len(self.copies), 1)  # one image
+        self.assertEqual((self.copies[0].width, self.copies[0].height), (120, 60 + 16 + 80))
+
+    def test_m_key_switches_back_to_one_by_one(self):
+        self.app.settings.set("capture.multi_clipboard", "combined")
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        self.assertEqual(overlay.action_bar.clip_mode, "combined")
+        QTest.keyClick(overlay, Qt.Key.Key_M)
+        self.assertEqual(overlay.action_bar.clip_mode, "sequence")
+        self.assertEqual(self.app.settings.get("capture.multi_clipboard"), "sequence")
+        QTest.keyClick(overlay, Qt.Key.Key_Return)
+        self.assertTrue(wait_until(lambda: len(self.copies) == 2, timeout=5))
+
+    def test_clipboard_switch_hidden_for_one_area_and_locked_by_policy(self):
+        overlay = self.open_selector()
+        self.select(overlay, QPoint(50, 40), QPoint(149, 99))
+        self.assertFalse(overlay.action_bar.clip_button.isVisible())
+        QTest.keyClick(overlay, Qt.Key.Key_M)  # no effect with one area
+        self.assertEqual(self.app.settings.get("capture.multi_clipboard"), "sequence")
+        QTest.keyClick(overlay, Qt.Key.Key_Escape)
+        QApplication.processEvents()
+        self.app.settings.locked["capture.multi_clipboard"] = "sequence"
+        overlay = self.open_selector()
+        self.collect_two(overlay)
+        self.assertFalse(overlay.action_bar.clip_button.isEnabled())
+        QTest.keyClick(overlay, Qt.Key.Key_M)
+        self.assertEqual(overlay.action_bar.clip_mode, "sequence")
+        QTest.keyClick(overlay, Qt.Key.Key_Escape)
+
     def test_single_region_actions_are_ignored_with_several_areas(self):
         overlay = self.open_selector()
         self.collect_two(overlay)

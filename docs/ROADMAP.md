@@ -65,6 +65,7 @@ capture reliability, hotkey ergonomics.
 | **M5.0.6 Install & bar** ✅ (0.7.2) | `Install.bat` / `Uninstall.bat`, installer checks git state and prints the installed version, FFmpeg fallback download when winget fails, builds from a temp copy (Google Drive), version in tray / hub / settings, configurable capture bar buttons | the user always knows which version runs |
 | **M5.0.7 Windows encoder** ✅ (0.7.5) | MP4 through Windows' built-in H.264 encoder (Media Foundation), engine choice in Settings, no FFmpeg needed for video without sound; live drawing tools selectable while recording | recording works on PCs where security software blocks FFmpeg |
 | **M5.0.8 Scrolling OK** ✅ (0.9.2) | OK button on the scrolling-capture pill (automatic and manual), never takes focus, hidden from capture; Esc still works | scrolling capture can be finished when Esc is taken by the app being captured |
+| **M5.0.9 Multi-area clipboard switch** ✅ (0.9.3) | one by one / one image switch on the selector bar (and key M) while several areas are selected, remembered | the clipboard choice is made right before Enter |
 | **M5.1 Recording+** | native WASAPI loopback (no "Stereo Mix"), Windows.Graphics.Capture source for 4K60, webcam overlay, trim editor, keystroke captions (opt-in), cut out a middle part, zoom/pan keyframes, speed changes | Loom-style tutorial in one take |
 | **M6 Intelligence** | UI element detection, anchored annotations, AI extension layer, Autopilot integration | anchor callouts to detected buttons |
 

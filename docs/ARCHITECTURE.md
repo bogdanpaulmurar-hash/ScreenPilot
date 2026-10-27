@@ -155,7 +155,10 @@ reports `(list[Rect], action)`. `AppController.capture_many` cuts every region
 from the same frozen desktop, runs the after-capture actions without
 `copy_image` for each, then copies them (`copy_many`) or opens the editor with
 the first capture as background and the others attached below
-(`EditorWindow.attach_below`).
+(`EditorWindow.attach_below`). With several regions the action bar also shows
+a clipboard switch (one by one / one image, key M); `RegionSelector` holds the
+choice and emits `clip_mode_changed`, and the controller saves it to
+`capture.multi_clipboard` (unless locked by policy), which `copy_many` reads.
 
 ## Testing
 
