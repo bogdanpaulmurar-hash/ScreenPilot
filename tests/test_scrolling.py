@@ -289,3 +289,77 @@ class ManualScrollingTests(unittest.TestCase):
         image, reason = capture_scrolling_manual(win.grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None, clock=lambda: 0.0)
         self.assertEqual(reason, "end")
         self.assertEqual(image.height, VIEW_H)
+
+
+class OkButtonTests(unittest.TestCase):
+    """The OK button on the progress pill finishes like Esc (core side: ``finish`` / ``hold``)."""
+
+    def test_finish_stops_and_keeps_without_asking(self):
+        win = FakeScrollingWindow()
+        asked = []
+        image, reason = capture_scrolling(
+            win.grab, Rect(0, 0, W, VIEW_H), win, settle=lambda: None,
+            on_stop=lambda: asked.append(1) or "cancel", finish=lambda: win.scrolls >= 2,
+        )
+        self.assertEqual(reason, "stopped")
+        self.assertEqual(image.height, VIEW_H + 2 * win.step)
+        self.assertEqual(asked, [])  # no pause question for OK
+
+    def test_esc_still_works_with_finish_wired(self):
+        win = FakeScrollingWindow()
+        win.stop_after = 1
+        _, reason = capture_scrolling(
+            win.grab, Rect(0, 0, W, VIEW_H), win, settle=lambda: None, on_stop=lambda: "cancel", finish=lambda: False
+        )
+        self.assertEqual(reason, "cancelled")
+
+    def test_hold_pauses_scrolling_until_ok(self):
+        win = FakeScrollingWindow()
+        state = {"held": 0}
+
+        def sleep(s):
+            state["held"] += 1
+
+        def finish():
+            return state["held"] >= 5
+
+        image, reason = capture_scrolling(
+            win.grab, Rect(0, 0, W, VIEW_H), win, settle=lambda: None, sleep=sleep,
+            hold=lambda: win.scrolls >= 1, finish=finish,
+        )
+        self.assertEqual(reason, "stopped")
+        self.assertEqual(win.scrolls, 1)  # nothing scrolled while the mouse rested on OK
+        self.assertEqual(image.height, VIEW_H + win.step)
+
+    def test_manual_finish(self):
+        from screenpilot.capture.scrolling import capture_scrolling_manual
+
+        win = FakeScrollingWindow()
+        state = {"n": 0}
+
+        def grab(rect):
+            state["n"] += 1
+            if state["n"] in (3, 5):
+                win.scroll(rect, 1)
+            return CapturedImage.from_pil(win.view())
+
+        win.stop_requested = lambda: False
+        image, reason = capture_scrolling_manual(
+            grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None, clock=lambda: 0.0, finish=lambda: state["n"] >= 8
+        )
+        self.assertEqual(reason, "done")
+        self.assertEqual(image.height, VIEW_H + 2 * win.step)
+
+    def test_service_drops_hold_in_manual_mode(self):
+        from screenpilot.capture import CaptureService, FakeBackend, Monitor
+        from screenpilot.core.events import EventBus
+
+        win = FakeScrollingWindow()
+        win.stop_requested = lambda: True
+        backend = FakeBackend([Monitor(1, Rect(0, 0, 1920, 1080), Rect(0, 0, 1920, 1040), True)])
+        backend.grab = win.grab
+        service = CaptureService(backend, EventBus())
+        _, reason = service.capture_scrolling(
+            Rect(0, 0, W, VIEW_H), win, manual=True, sleep=lambda s: None, hold=lambda: True, finish=lambda: False
+        )
+        self.assertEqual(reason, "end")

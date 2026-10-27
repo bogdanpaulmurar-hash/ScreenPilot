@@ -171,9 +171,10 @@ class CaptureService:
         def progress(frames: int, height: int) -> None:
             self.bus.publish(EVENT_SCROLL_PROGRESS, frames=frames, height=height)
 
-        if manual:  # the user scrolls; Esc finishes (no pause question)
+        if manual:  # the user scrolls; Esc or OK finishes (no pause question)
             options.pop("on_stop", None)
             options.pop("settle", None)
+            options.pop("hold", None)  # nothing moves the cursor in manual mode
             image, reason = capture_scrolling_manual(grab, area, scroller, progress=progress, **options)
         else:
             image, reason = capture_scrolling(grab, area, scroller, progress=progress, **options)

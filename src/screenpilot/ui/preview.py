@@ -260,25 +260,47 @@ class QuickPreview(QWidget):
 
 
 class ScrollIndicator(QWidget):
-    """Progress pill shown below the region while a scrolling capture runs."""
+    """Progress pill shown next to the region while a scrolling capture runs.
 
-    def __init__(self, translator: Translator, anchor: QPoint, *, manual: bool = False) -> None:
+    The pill carries an OK button that finishes the capture (like Esc). The
+    window never takes focus or activates (``WS_EX_NOACTIVATE`` on Windows),
+    so the app being captured keeps the keyboard, and it is placed outside the
+    region and excluded from screen capture, so it never shows in the frames.
+    Resting the mouse on the pill pauses automatic scrolling (``hovered``),
+    otherwise the scroller would move the cursor away from the button.
+    """
+
+    finish_requested = Signal()
+
+    HEIGHT = 40
+    OK_WIDTH = 64
+
+    def __init__(self, translator: Translator, anchor: QPoint, *, manual: bool = False, top: int | None = None) -> None:
         super().__init__(None)
+        import threading
+
         self.t = translator.t
         self.anchor = anchor
+        self.region_top = top
         self.manual = manual
+        self.hovered = threading.Event()  # read by the scrolling worker
+        self.finished = threading.Event()
+        self._ok_hover = False
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowDoesNotAcceptFocus
-            | Qt.WindowType.WindowTransparentForInput
         )
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setMouseTracking(True)
+        self.setToolTip(self.t("scroll.ok.tooltip"))
         self.text = self.t("scroll.manual.starting" if manual else "scroll.starting")
-        self.setFixedHeight(40)
+        self.setFixedHeight(self.HEIGHT)
+        self._native_done = False
 
     def set_progress(self, frames: int, height: int) -> None:
         key = "scroll.manual.progress" if self.manual else "scroll.progress"
@@ -290,19 +312,75 @@ class ScrollIndicator(QWidget):
         from screenpilot.ui.theme import ui_font
 
         self.setFont(ui_font(10))
-        self.setFixedWidth(self.fontMetrics().horizontalAdvance(self.text) + 48)
+        self.setFixedWidth(self.fontMetrics().horizontalAdvance(self.text) + 48 + self.OK_WIDTH)
+
+    def ok_rect(self) -> QRectF:
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        return QRectF(r.right() - self.OK_WIDTH - 2, r.top() + 5, self.OK_WIDTH, r.height() - 10)
 
     def show_near(self) -> None:
-        """Below the region (outside it, so it never appears in the frames)."""
+        """Below the region, else above it (outside it, so it never appears in the frames)."""
         self._fit()
         area = QGuiApplication.screenAt(self.anchor) or QGuiApplication.primaryScreen()
         geo = area.availableGeometry()
         x = min(max(geo.left() + 8, self.anchor.x()), geo.right() - self.width() - 8)
         y = self.anchor.y() + 12
         if y + self.height() > geo.bottom():
-            y = geo.top() + 12  # region reaches the bottom: show at the top of the screen
+            above = (self.region_top if self.region_top is not None else geo.top()) - self.height() - 12
+            # no room below or above: top of the screen (hidden from capture on Windows 10 2004+)
+            y = above if above >= geo.top() else geo.top() + 12
         self.move(x, y)
         self.show()
+        self._make_native()
+
+    def _make_native(self) -> None:
+        """Windows: never activate on click; keep out of screenshots."""
+        if self._native_done:
+            return
+        self._native_done = True
+        from screenpilot.platform.win32_window import exclude_from_capture, set_no_activate
+
+        hwnd = int(self.winId())
+        set_no_activate(hwnd)
+        exclude_from_capture(hwnd)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self.hovered.clear()  # hidden for the pause question: no leave event follows
+        super().hideEvent(event)
+
+    # -- mouse: the OK button ------------------------------------------------
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self.hovered.set()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.hovered.clear()
+        self._ok_hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        over = self.ok_rect().contains(event.position())
+        if over != self._ok_hover:
+            self._ok_hover = over
+            self.setCursor(Qt.CursorShape.PointingHandCursor if over else Qt.CursorShape.ArrowCursor)
+            self.update()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        # acts on press: the window never activates, and the automatic scroller
+        # may move the cursor right after a release
+        if event.button() == Qt.MouseButton.LeftButton and self.ok_rect().contains(event.position()):
+            self.finish()
+        event.accept()
+
+    def finish(self) -> None:
+        if self.finished.is_set():
+            return
+        self.finished.set()
+        self.text = self.t("scroll.finishing")
+        self._fit()
+        self.update()
+        self.finish_requested.emit()
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         p = QPainter(self)
@@ -311,10 +389,21 @@ class ScrollIndicator(QWidget):
         p.setBrush(QColor(32, 32, 32, 235))
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
-        p.setBrush(QColor(theme().accent).lighter(150))
+        accent = QColor(theme().accent)
+        p.setBrush(accent.lighter(150))
         p.drawEllipse(QRectF(r.left() + 14, r.center().y() - 4, 8, 8))
         p.setPen(QColor("white"))
-        p.drawText(r.adjusted(30, 0, -12, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text)
+        text_rect = r.adjusted(30, 0, -12 - self.OK_WIDTH, 0)
+        p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text)
+        ok = self.ok_rect()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(accent.lighter(120) if self._ok_hover else accent)
+        p.drawRoundedRect(ok, ok.height() / 2, ok.height() / 2)
+        p.setPen(QPen(QColor("white"), 2))
+        cy = ok.center().y()
+        x0 = ok.left() + 12
+        p.drawPolyline([QPoint(int(x0), int(cy)), QPoint(int(x0 + 4), int(cy + 4)), QPoint(int(x0 + 11), int(cy - 4))])
+        p.drawText(ok.adjusted(26, 0, -8, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.t("scroll.ok"))
         p.end()
 
 

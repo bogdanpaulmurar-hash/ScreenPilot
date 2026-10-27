@@ -274,6 +274,8 @@ def capture_scrolling(
     settle: Callable[[], None] | None = None,
     progress: Callable[[int, int], None] | None = None,
     on_stop: Callable[[], str] | None = None,
+    finish: Callable[[], bool] | None = None,
+    hold: Callable[[], bool] | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> tuple[CapturedImage, str]:
     """Scroll ``rect`` until the content stops moving; returns (image, reason).
@@ -284,6 +286,10 @@ def capture_scrolling(
     When the scroller reports a stop request (Esc), ``on_stop`` decides what
     happens while scrolling is paused: ``"continue"``, ``"stop"`` (keep what
     was captured) or ``"cancel"`` (discard). Without it, Esc stops.
+
+    ``finish`` (the OK button) stops at once and keeps what was captured,
+    without the pause question. While ``hold`` is true (the mouse is over the
+    OK button) no scroll is sent, so the cursor is not moved away from it.
     """
     def next_frame(first: bool = False) -> CapturedImage:
         if settle is not None:  # fixed wait (tests)
@@ -300,6 +306,11 @@ def capture_scrolling(
     reason = "max_frames"
     still = 0
     for _ in range(max_frames):
+        while hold is not None and hold() and not (finish is not None and finish()) and not scroller.stop_requested():
+            sleep(0.05)
+        if finish is not None and finish():
+            reason = "stopped"
+            break
         if scroller.stop_requested():
             decision = on_stop() if on_stop is not None else "stop"
             if decision == "continue":
@@ -342,10 +353,11 @@ def capture_scrolling_manual(
     max_seconds: float = 300.0,
     interval: float = 0.15,
     progress: Callable[[int, int], None] | None = None,
+    finish: Callable[[], bool] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> tuple[CapturedImage, str]:
-    """The user scrolls (wheel, keys, scrollbar); frames are stitched as they come. Esc finishes.
+    """The user scrolls (wheel, keys, scrollbar); frames are stitched as they come. Esc or OK finishes.
 
     Frames that can't be matched (scrolled too far at once) are skipped; scrolling
     back a little lets the capture pick up again. reason: "done", "max_height",
@@ -357,7 +369,7 @@ def capture_scrolling_manual(
     reason = "timeout"
     skipped = 0
     while clock() - started < max_seconds:
-        if scroller.stop_requested():
+        if scroller.stop_requested() or (finish is not None and finish()):
             reason = "done"
             break
         sleep(interval)
