@@ -2,6 +2,10 @@
 
 Per-release details: `docs/releases/<version>.md`.
 
+## 0.9.4 — 2026-10-27
+- Scrolling capture: no repeated rows in Explorer-like lists (hover highlight under the mouse, partial last scroll); manual mode no longer skips those frames. Reported on the laptop with an Explorer folder.
+- Tests (Linux, offscreen Qt): 381 passed, 9 skipped (Windows-only). New: `FileListScrollingTests` (2 tests, 14 cases; they fail on 0.9.3).
+
 ## 0.9.3 — 2026-10-27
 - Selector: with several areas (Ctrl), a switch on the action bar (and key M) chooses "one by one" or "one image" for the clipboard right before Enter; remembered in `capture.multi_clipboard`, disabled when locked by policy.
 - Tests (Linux, offscreen Qt): 379 passed, 9 skipped (Windows-only). New: 3 tests in `MultiCaptureUiTests`.

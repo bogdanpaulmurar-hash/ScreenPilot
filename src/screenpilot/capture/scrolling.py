@@ -36,6 +36,8 @@ log = logging.getLogger(__name__)
 SCROLLBAR_IGNORE = 0.12  # right part of each row ignored for matching (scrollbar thumb moves)
 MAX_STATIC_RATIO = 0.35  # sticky header/footer can't be more than this much of the view
 MIN_MATCH = 0.9
+HOVER_MIN_MATCH = 0.5  # with only hover runs differing (see _hover_only)
+HOVER_BAND = 48  # a hovered list row is at most this tall; two runs of up to twice this may differ
 FUZZY_MIN_MATCH = 0.75  # share of informative rows that must agree in the tolerant match
 FUZZY_MIN_ROWS = 12  # fewer informative rows than this: too little content to match safely
 PROFILE_SAMPLES = 160  # pixels sampled per row for the tolerant profile
@@ -56,7 +58,13 @@ def row_signatures(image: CapturedImage) -> list[bytes]:
 
 
 def find_shift(prev: list[bytes], curr: list[bytes]) -> int | None:
-    """Rows scrolled between two equally sized middle segments (None if no reliable match)."""
+    """Rows scrolled between two equally sized middle segments (None if no reliable match).
+
+    A shift is accepted when almost all overlapping rows are identical, or when
+    the rows that differ are only the hovered list item before and after the
+    scroll (:func:`_hover_only`): Explorer, Outlook and most lists highlight
+    the row under the mouse, and that row changes with every scroll.
+    """
     n = len(prev)
     if n == 0 or prev == curr:
         return 0
@@ -73,10 +81,28 @@ def find_shift(prev: list[bytes], curr: list[bytes]) -> int | None:
         overlap = n - shift
         if overlap <= 0:
             continue
-        same = sum(1 for k in range(overlap) if prev[shift + k] == curr[k])
+        rows = range(overlap)
+        same = sum(1 for k in rows if prev[shift + k] == curr[k])
         if same / overlap >= MIN_MATCH:
             return shift
+        if same / overlap >= HOVER_MIN_MATCH and _hover_only(prev, curr, shift, rows):
+            return shift
     return None
+
+
+def _hover_only(prev: list[bytes], curr: list[bytes], shift: int, rows) -> bool:
+    """The rows that differ form at most two short runs: the hovered item before and after
+    the scroll (the mouse rests on a list while the user scrolls by hand)."""
+    runs: list[int] = []
+    last = None
+    for k in rows:
+        if prev[shift + k] != curr[k]:
+            if last is not None and k - last <= 3:  # small gaps (grid lines) join a run
+                runs[-1] += k - last
+            else:
+                runs.append(1)
+            last = k
+    return len(runs) <= 2 and all(r <= 2 * HOVER_BAND for r in runs)
 
 
 def row_profiles(image: CapturedImage) -> list[tuple[int, int]]:
