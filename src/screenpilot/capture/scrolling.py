@@ -328,7 +328,15 @@ class ScrollStitcher:
         return len(new_rows)
 
     def result(self) -> CapturedImage:
-        return CapturedImage(self.width, len(self.rows), b"".join(self.rows))
+        rows = self.rows
+        if self._footer and len(rows) >= self._footer:
+            # a floating box: its block came from the FIRST frame, so the page seen around and
+            # behind it (a faded "shadow" of some other section) belongs to the start of the
+            # capture. Use the block of the last frame: it shows the end of the page.
+            stride = self._last.stride
+            tail = [self._last.bgra[y * stride : (y + 1) * stride] for y in range(self.view_height - self._footer, self.view_height)]
+            rows = rows[: len(rows) - self._footer] + tail
+        return CapturedImage(self.width, len(rows), b"".join(rows))
 
 
 class Scroller(Protocol):

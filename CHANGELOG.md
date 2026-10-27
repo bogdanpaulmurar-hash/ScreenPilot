@@ -2,6 +2,10 @@
 
 Per-release details: `docs/releases/<version>.md`.
 
+## 0.9.6 — 2026-10-27
+- Scrolling capture: the block of a floating box at the end of the picture now comes from the last frame, so no faint "shadow" of another section remains around it.
+- Tests (Linux, offscreen Qt): 386 passed, 9 skipped (Windows-only). New test fails on 0.9.5.
+
 ## 0.9.5 — 2026-10-27
 - Scrolling capture: a floating box over the page (chat input) is detected and kept once at the end instead of being pasted at every step; a blinking caret no longer makes every step wait for the view to settle.
 - Tests (Linux, offscreen Qt): 385 passed, 9 skipped (Windows-only). New: `FloatingBoxScrollingTests` (+ caret tests); 7 fail on 0.9.4. Reproduced in simulation only, not yet on the real VS Code panel.
