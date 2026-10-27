@@ -50,6 +50,33 @@ class StitchError(Exception):
     pass
 
 
+CARET_MAX_PX = 6  # a row that differs only within this many pixels is "the same" (blinking text caret)
+
+
+def _rows_close(a: bytes, b: bytes) -> bool:
+    if a == b:
+        return True
+    if len(a) != len(b):
+        return False
+    diff = int.from_bytes(a, "big") ^ int.from_bytes(b, "big")
+    low = (diff & -diff).bit_length() - 1  # lowest differing bit
+    return (diff.bit_length() - low + 7) // 8 <= CARET_MAX_PX * BYTES_PER_PIXEL
+
+
+def frames_close(a: CapturedImage, b: CapturedImage) -> bool:
+    """Two grabs show the same view, a blinking caret aside (it never lets a view "stand still")."""
+    if a.bgra == b.bgra:
+        return True
+    if (a.width, a.height) != (b.width, b.height):
+        return False
+    stride = a.stride
+    for y in range(a.height):
+        ra, rb = a.bgra[y * stride : (y + 1) * stride], b.bgra[y * stride : (y + 1) * stride]
+        if ra != rb and not _rows_close(ra, rb):
+            return False
+    return True
+
+
 def row_signatures(image: CapturedImage) -> list[bytes]:
     stride = image.stride
     x1 = int(image.width * (1 - SCROLLBAR_IGNORE)) * BYTES_PER_PIXEL
@@ -57,7 +84,50 @@ def row_signatures(image: CapturedImage) -> list[bytes]:
     return [data[y * stride : y * stride + x1] for y in range(image.height)]
 
 
-def find_shift(prev: list[bytes], curr: list[bytes]) -> int | None:
+def _votes(prev: list[bytes], curr: list[bytes]) -> "Counter[int]":
+    prev_count = Counter(prev)
+    curr_count = Counter(curr)
+    prev_pos = {sig: i for i, sig in enumerate(prev) if prev_count[sig] == 1}
+    votes: Counter[int] = Counter()
+    for i, sig in enumerate(curr):
+        if curr_count[sig] == 1:
+            j = prev_pos.get(sig)
+            if j is not None and j > i:
+                votes[j - i] += 1
+    return votes
+
+
+OVERLAY_MIN_VOTES = 8
+OVERLAY_MIN_ROWS = 12  # fewer differing rows than this: not a box
+OVERLAY_MIN_DENSITY = 0.35  # share of rows in the box band that differ (its interior may be blank)
+OVERLAY_OUTSIDE_MAX = 0.05  # differing rows allowed outside the band, as a share of the overlap
+
+
+def tail_overlay(prev: list[bytes], curr: list[bytes], shift: int, cap: int) -> int:
+    """Height of a floating box over the bottom of the view (chat input, toast, cookie bar).
+
+    The page scrolls under such a box, so it is no sticky footer (content shows beside
+    and below it) and, taken as new content, it would be pasted into the picture at every
+    step. Given the scroll ``shift`` (voted by unique rows), the rows that disagree
+    between the two frames are then the previous frame's box: one block that ends where
+    the compared range ends. Returns its height (0 if the differences look like anything else).
+    """
+    n = len(prev)
+    overlap = n - shift
+    if overlap <= 0:
+        return 0
+    differing = [k for k in range(overlap) if prev[shift + k] != curr[k]]
+    inside = [k for k in differing if k >= overlap - cap]
+    outside = len(differing) - len(inside)
+    if len(inside) < OVERLAY_MIN_ROWS or outside > OVERLAY_OUTSIDE_MAX * overlap:
+        return 0
+    band = overlap - min(inside)
+    if len(inside) / band < OVERLAY_MIN_DENSITY:
+        return 0
+    return band
+
+
+def find_shift(prev: list[bytes], curr: list[bytes], hover: bool = True) -> int | None:
     """Rows scrolled between two equally sized middle segments (None if no reliable match).
 
     A shift is accepted when almost all overlapping rows are identical, or when
@@ -68,15 +138,7 @@ def find_shift(prev: list[bytes], curr: list[bytes]) -> int | None:
     n = len(prev)
     if n == 0 or prev == curr:
         return 0
-    prev_count = Counter(prev)
-    curr_count = Counter(curr)
-    prev_pos = {sig: i for i, sig in enumerate(prev) if prev_count[sig] == 1}
-    votes: Counter[int] = Counter()
-    for i, sig in enumerate(curr):
-        if curr_count[sig] == 1:
-            j = prev_pos.get(sig)
-            if j is not None and j > i:
-                votes[j - i] += 1
+    votes = _votes(prev, curr)
     for shift, _ in votes.most_common(5):
         overlap = n - shift
         if overlap <= 0:
@@ -85,7 +147,7 @@ def find_shift(prev: list[bytes], curr: list[bytes]) -> int | None:
         same = sum(1 for k in rows if prev[shift + k] == curr[k])
         if same / overlap >= MIN_MATCH:
             return shift
-        if same / overlap >= HOVER_MIN_MATCH and _hover_only(prev, curr, shift, rows):
+        if hover and same / overlap >= HOVER_MIN_MATCH and _hover_only(prev, curr, shift, rows):
             return shift
     return None
 
@@ -182,6 +244,7 @@ class ScrollStitcher:
         self._last = first
         self._last_shift: int | None = None
         self.fuzzy_matches = 0
+        self._footer = 0  # rows of a floating box (and the gap below it) seen at the bottom of the view
         self.cursor_row: int | None = None  # row of the view where the cursor is parked (hover effects)
         self.frames = 1
         self.finished_reason = ""
@@ -206,7 +269,27 @@ class ScrollStitcher:
         bottom = 0
         while bottom < cap and sig[h - 1 - bottom] == prev[h - 1 - bottom]:
             bottom += 1
-        shift = find_shift(prev[top : h - bottom], sig[top : h - bottom])
+        shift = None
+        if self._footer > bottom:  # a floating box was seen before: try with it left out first
+            shift = find_shift(prev[top : h - self._footer], sig[top : h - self._footer])
+            if shift is not None:
+                bottom = self._footer
+            else:
+                self._footer = 0
+        if shift is None:
+            shift = find_shift(prev[top : h - bottom], sig[top : h - bottom], hover=False)
+        if shift is None:
+            votes = _votes(prev[top : h - bottom], sig[top : h - bottom])
+            if votes and votes.most_common(1)[0][1] >= OVERLAY_MIN_VOTES:
+                guess = votes.most_common(1)[0][0]
+                box = tail_overlay(prev[top : h - bottom], sig[top : h - bottom], guess, cap)
+                if box:
+                    total = bottom + box
+                    shift = find_shift(prev[top : h - total], sig[top : h - total])
+                    if shift is not None:
+                        bottom = self._footer = total
+        if shift is None:
+            shift = find_shift(prev[top : h - bottom], sig[top : h - bottom])
         if shift is None:
             if self._last_profile is None:
                 self._last_profile = row_profiles(self._last)
@@ -279,7 +362,7 @@ def grab_stable(
         sleep(interval)
         waited += interval
         nxt = grab(rect)
-        if nxt.bgra == frame.bgra:
+        if frames_close(nxt, frame):
             return nxt
         frame = nxt
     return frame

@@ -445,3 +445,82 @@ class FileListScrollingTests(unittest.TestCase):
                 )
                 self.assertEqual(image.height, win.full_height)
 
+
+
+class FloatingBoxWindow(FakeScrollingWindow):
+    """A chat: the page scrolls under a floating input box (content shows beside and below it)
+    whose text caret blinks."""
+
+    def __init__(self, box_h: int = 90, gap: int = 14, step: int = 70):
+        super().__init__(step=step)
+        self.box_h, self.gap, self.grabs = box_h, gap, 0
+
+    def view(self) -> Image.Image:
+        img = super().view()
+        d = ImageDraw.Draw(img)
+        y1 = VIEW_H - self.gap
+        y0 = y1 - self.box_h
+        d.rectangle((60, y0, W - 90, y1), outline=(190, 190, 190), fill="white")
+        d.text((75, y0 + 14), "Ask Claude to edit...", fill=(120, 120, 120))
+        d.text((75, y1 - 24), "+   Model        Auto", fill=(60, 60, 60))
+        self.grabs += 1
+        if self.grabs % 2:
+            d.line((73, y0 + 10, 73, y0 + 26), fill=(0, 0, 0), width=2)  # blinking caret
+        return img
+
+
+class FloatingBoxScrollingTests(unittest.TestCase):
+    def _border_rows(self, image) -> list[int]:
+        pil = image.to_pil().convert("RGB")
+        px = pil.load()
+        return [y for y in range(pil.height) if all(px[x, y] == (190, 190, 190) for x in range(200, 260))]
+
+    def test_box_is_kept_once_at_the_end(self):
+        for box, gap, step in ((90, 14, 70), (60, 6, 50), (90, 6, 50), (60, 14, 70)):
+            with self.subTest(box=box, gap=gap, step=step):
+                win = FloatingBoxWindow(box, gap, step)
+                image, reason = capture_scrolling(win.grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None)
+                self.assertEqual(reason, "end")
+                self.assertAlmostEqual(image.height, HEADER + PAGE_H, delta=box + gap + step)
+                borders = self._border_rows(image)
+                self.assertEqual(len(borders), 2, borders)  # top and bottom border of ONE box
+                self.assertGreaterEqual(borders[0], image.height - box - gap - 2)  # at the very end
+
+    def test_manual_mode_keeps_the_box_once(self):
+        from screenpilot.capture.scrolling import capture_scrolling_manual
+
+        win = FloatingBoxWindow(90, 14, 40)
+        polls = {"n": 0}
+
+        def grab(rect):
+            polls["n"] += 1
+            if polls["n"] > 3 and polls["n"] % 3 == 0 and win.offset < win.max_offset:
+                win.scroll(rect, 1)
+            return CapturedImage.from_pil(win.view())
+
+        win.stop_requested = lambda: win.offset >= win.max_offset and polls["n"] > 10
+        image, reason = capture_scrolling_manual(grab, Rect(0, 0, W, VIEW_H), win, sleep=lambda s: None, clock=lambda: 0.0)
+        self.assertEqual(len(self._border_rows(image)), 2)
+
+    def test_blinking_caret_does_not_stop_the_view_standing_still(self):
+        from screenpilot.capture.scrolling import frames_close, grab_stable
+
+        win = FloatingBoxWindow()
+        a, b = win.grab(None), win.grab(None)  # caret on, caret off
+        self.assertNotEqual(a.bgra, b.bgra)
+        self.assertTrue(frames_close(a, b))
+        waited = {"t": 0.0}
+
+        def sleep(s):
+            waited["t"] += s
+
+        grab_stable(win.grab, Rect(0, 0, W, VIEW_H), sleep)
+        self.assertLess(waited["t"], 0.6)  # settles after two grabs instead of the 1.2 s limit
+
+    def test_a_real_change_is_not_a_caret(self):
+        from screenpilot.capture.scrolling import frames_close
+
+        win = FloatingBoxWindow()
+        a = win.grab(None)
+        win.scroll(None, 1)
+        self.assertFalse(frames_close(a, win.grab(None)))
