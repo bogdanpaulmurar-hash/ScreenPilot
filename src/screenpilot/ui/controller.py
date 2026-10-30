@@ -996,12 +996,18 @@ class AppController(QObject):
             settings=self.app.settings,
             ocr_engine=self.ocr_engine,
             recent_images=self.recent_images,
+            on_copy_close=self._editor_copy_closed,
         )
         key = f"editor-{id(editor)}"
         self._windows[key] = editor
         editor.destroyed.connect(lambda *_: self._windows.pop(key, None))
         present(editor)
         return editor
+
+    def _editor_copy_closed(self, result: CaptureResult) -> None:
+        """Editor "Copy & close": the image is already on the clipboard; also save it unless turned off."""
+        if self.app.settings.get("editor.copy_close_saves"):
+            self.process(result, [{"id": "save"}], quiet=True)
 
     def recent_images(self, count: int = 15) -> list[tuple[str, str, str]]:
         """(label, path, thumbnail) of recent captures, for the editor's Insert picture menu."""

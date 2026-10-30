@@ -1326,7 +1326,7 @@ class RecordingEscapeTests(UiTestCase):
 
 
 class CopyAndCloseTests(UiTestCase):
-    def test_editor_copy_and_close_copies_without_saving(self):
+    def test_editor_copy_and_close_copies_and_saves(self):
         result = self.app.capture.capture_window()
         editor = self.controller.open_editor(result)
         QTest.qWaitForWindowExposed(editor)
@@ -1337,8 +1337,18 @@ class CopyAndCloseTests(UiTestCase):
         QTest.mouseClick(editor.buttons["copy_close"], Qt.MouseButton.LeftButton)
         self.assertIsNotNone(self.app.clipboard.image)
         self.assertTrue(wait_until(lambda: not any(k.startswith("editor-") for k in self.controller._windows)))
-        QTest.qWait(100)
-        self.assertEqual(self.captured, [])  # Done (save) was not run
+        self.assertTrue(wait_until(lambda: len(list(self.app.output_dir.glob("*.png"))) == 1))
+        self.assertEqual(self.captured, [])  # saved quietly: no preview / notification
+        self.assertTrue(wait_until(lambda: len(self.app.history.entries()) == 1))
+
+    def test_editor_copy_and_close_does_not_save_when_turned_off(self):
+        self.app.settings.set("editor.copy_close_saves", False)
+        editor = self.controller.open_editor(self.app.capture.capture_window())
+        QTest.qWaitForWindowExposed(editor)
+        editor.copy_and_close()
+        self.assertIsNotNone(self.app.clipboard.image)
+        QTest.qWait(300)
+        self.assertEqual(list(self.app.output_dir.glob("*.png")), [])
         self.assertEqual(self.app.history.entries(), [])
 
     def test_step_editor_copy_and_close(self):
@@ -1666,7 +1676,7 @@ class EditorV2Tests(UiTestCase):
         self.assertIsNotNone(self.app.clipboard.image)
         self.assertEqual(self.app.clipboard.image.width, editor.result.image.width)
         self.assertTrue(wait_until(lambda: not any(k.startswith("editor-") for k in self.controller._windows)))
-        self.assertEqual(self.captured, [])  # nothing saved, only copied
+        self.assertEqual(self.captured, [])  # saved quietly, no preview
 
 class HubEditorTests(UiTestCase):
     def test_editor_and_ocr_tiles_and_recent_thumbnail_opens_editor(self):

@@ -253,6 +253,11 @@ class SettingsDialog(QDialog):
         column.addWidget(
             self._row("image", "settings.preview", "settings.preview.desc", self._toggle("capture.show_preview"))
         )
+        column.addWidget(
+            self._row(
+                "image", "settings.copy_close_saves", "settings.copy_close_saves.desc", self._toggle("editor.copy_close_saves")
+            )
+        )
         self.history_limit = QSpinBox()
         self.history_limit.setRange(10, 1000)
         self.history_limit.setSingleStep(10)
