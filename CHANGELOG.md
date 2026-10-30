@@ -2,6 +2,10 @@
 
 Per-release details: `docs/releases/<version>.md`.
 
+## 0.9.7 — 2026-10-30
+- Editor: "Copy & close" also saves the edited image to the captures folder (same name pattern, appears in history); new setting `editor.copy_close_saves` (on by default; Settings → "Save on Copy & close").
+- Tests (Linux, offscreen Qt): 387 passed, 9 skipped (Windows-only). New: copy & close saves; setting off saves nothing.
+
 ## 0.9.6 — 2026-10-27
 - Scrolling capture: the block of a floating box at the end of the picture now comes from the last frame, so no faint "shadow" of another section remains around it.
 - Tests (Linux, offscreen Qt): 386 passed, 9 skipped (Windows-only). New test fails on 0.9.5.

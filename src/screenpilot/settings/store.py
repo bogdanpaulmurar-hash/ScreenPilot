@@ -109,6 +109,7 @@ DEFAULTS: dict[str, Any] = {
         "color": "#d13438",
         "width": 4,
         "open_mode": "ask",  # opening the editor without a capture: "ask" = picker, "last" = newest capture
+        "copy_close_saves": True,  # "Copy & close" also saves the edited image to the captures folder
     },
     "video": {
         "annotation_seconds": 3.0,  # how long a new annotation stays in the video editor
