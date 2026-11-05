@@ -8,7 +8,8 @@ from pathlib import Path
 from xml.dom import minidom
 
 from screenpilot.capture import CaptureService, Rect
-from screenpilot.docs import ProcedureSession, export_docx, export_html, export_markdown
+from screenpilot.docs import ProcedureSession, export_docx, export_html, export_image, export_markdown
+from screenpilot.docs import export as export_mod
 from screenpilot.samples import DemoBackend
 
 
@@ -89,6 +90,63 @@ class ExportTests(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue((out / "proc.pdf").exists())
+
+
+class SingleImageExportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.session = make_session(self.tmp / "s")
+
+    def _sizes(self):
+        from PIL import Image
+
+        out = []
+        for step in self.session.steps:
+            with Image.open(self.session.image_path(step)) as im:
+                out.append(im.size)
+        return out
+
+    def test_steps_are_stacked_top_to_bottom(self):
+        from PIL import Image
+
+        target = export_image(self.session, self.tmp / "all.png", step_label="Pasul")
+        sizes = self._sizes()
+        m, gap, head = export_mod.IMAGE_MARGIN, export_mod.IMAGE_GAP, export_mod.IMAGE_HEADER
+        with Image.open(target) as page:
+            self.assertEqual(page.width, max(w for w, _ in sizes) + 2 * m)
+            self.assertEqual(page.height, 2 * m + sum(h + head for _, h in sizes) + gap * (len(sizes) - 1))
+            # the first pixel of every step image sits where expected, in order
+            y = m
+            page = page.convert("RGB")
+            for step, (w, h) in zip(self.session.steps, sizes):
+                y += head
+                with Image.open(self.session.image_path(step)) as im:
+                    self.assertEqual(page.getpixel((m + w // 2, y + h // 2)), im.convert("RGB").getpixel((w // 2, h // 2)))
+                y += h + gap
+
+    def test_without_headers(self):
+        from PIL import Image
+
+        target = export_image(self.session, self.tmp / "plain.png", headers=False)
+        sizes = self._sizes()
+        m, gap = export_mod.IMAGE_MARGIN, export_mod.IMAGE_GAP
+        with Image.open(target) as page:
+            self.assertEqual(page.height, 2 * m + sum(h for _, h in sizes) + gap * (len(sizes) - 1))
+
+    def test_very_tall_result_is_scaled_down(self):
+        from PIL import Image
+
+        old = export_mod.IMAGE_MAX_SIDE
+        export_mod.IMAGE_MAX_SIDE = 500
+        self.addCleanup(setattr, export_mod, "IMAGE_MAX_SIDE", old)
+        with Image.open(export_image(self.session, self.tmp / "small.png")) as page:
+            self.assertLessEqual(max(page.size), 500)
+
+    def test_empty_procedure_is_refused(self):
+        empty = ProcedureSession.create(self.tmp / "e")
+        with self.assertRaises(ValueError):
+            export_image(empty, self.tmp / "none.png")
 
 
 if __name__ == "__main__":

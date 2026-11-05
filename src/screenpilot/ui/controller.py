@@ -606,7 +606,9 @@ class AppController(QObject):
             from screenpilot.docs import ProcedureSession
 
             session = ProcedureSession.load(session)
-        window = ProcedureWindow(session, self.app.translator, save_dir=self.app.output_dir, reveal=self.app.shell.reveal)
+        window = ProcedureWindow(
+            session, self.app.translator, save_dir=self.app.output_dir, reveal=self.app.shell.reveal, copy_image=self._procedure_copy
+        )
         window.add_capture.connect(lambda: self._procedure_add_capture(window))
         window.edit_image.connect(lambda row: self._procedure_edit_image(window, row))
         key = f"procedure-{id(window)}"
@@ -950,6 +952,22 @@ class AppController(QObject):
         preview.show_animated()
         self.watch_escape()  # Esc dismisses it, wherever the keyboard focus is
         return preview
+
+    def _procedure_copy(self, path: Path) -> None:
+        """Copy one procedure step image, the same way as a capture."""
+        from PIL import Image
+
+        from screenpilot.capture.image import CapturedImage
+
+        try:
+            with Image.open(path) as im:
+                image = CapturedImage.from_pil(im.convert("RGB"))
+            self.app.clipboard.set_image(image)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Copy failed")
+            self.notify.emit(self.t("notify.failed.title"), str(exc), True)
+            return
+        self.notify.emit(self.t("notify.copied.title"), self.t("notify.copied.body", width=image.width, height=image.height), False)
 
     def copy_result(self, result: CaptureResult) -> None:
         try:

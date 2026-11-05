@@ -1,4 +1,5 @@
-"""Procedure exports: Word (.docx), HTML (single file), Markdown (+ images).
+"""Procedure exports: Word (.docx), HTML (single file), Markdown (+ images),
+one tall PNG with every step.
 
 The .docx writer produces a minimal, standards-compliant WordprocessingML
 package with the zipfile module (no python-docx dependency): built-in
@@ -88,6 +89,55 @@ def export_html(session: ProcedureSession, target: Path, *, step_label: str = "S
         parts.append(f'<img alt="{title}" src="data:image/png;base64,{data}"></section>')
     parts.append("</body></html>")
     target.write_text("\n".join(parts), encoding="utf-8")
+    return target
+
+
+# -- Single image -------------------------------------------------------------
+IMAGE_MARGIN = 24
+IMAGE_GAP = 32
+IMAGE_HEADER = 44
+IMAGE_MAX_SIDE = 60000  # stay well under Pillow's decompression-bomb guard
+
+
+def export_image(session: ProcedureSession, target: Path, *, step_label: str = "Step", headers: bool = True) -> Path:
+    """Write every step image into one tall PNG, top to bottom.
+
+    Each image keeps its size, aligned left on a white page; with ``headers``
+    a "Step N: title" line is drawn above it. Very tall results are scaled
+    down so the file still opens everywhere.
+    """
+    from PIL import Image, ImageDraw
+
+    from screenpilot.editor.document import font
+
+    steps = session.steps
+    if not steps:
+        raise ValueError("procedure has no steps")
+    header = IMAGE_HEADER if headers else 0
+    sizes = []
+    for step in steps:
+        with Image.open(session.image_path(step)) as im:
+            sizes.append(im.size)
+    width = max(w for w, _ in sizes) + 2 * IMAGE_MARGIN
+    height = 2 * IMAGE_MARGIN + sum(h + header for _, h in sizes) + IMAGE_GAP * (len(steps) - 1)
+    page = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(page)
+    label_font = font(20, bold=True)
+    y = IMAGE_MARGIN
+    for i, (step, (w, h)) in enumerate(zip(steps, sizes)):
+        if headers:
+            draw.text((IMAGE_MARGIN, y + header // 2), step_heading(i, step.title, step_label),
+                      fill=(0, 0x67, 0xC0), font=label_font, anchor="lm")
+            y += header
+        with Image.open(session.image_path(step)) as im:
+            page.paste(im.convert("RGB"), (IMAGE_MARGIN, y))
+        draw.rectangle((IMAGE_MARGIN - 1, y - 1, IMAGE_MARGIN + w, y + h), outline=(0xD0, 0xD0, 0xD0))
+        y += h + IMAGE_GAP
+    longest = max(page.size)
+    if longest > IMAGE_MAX_SIDE:
+        scale = IMAGE_MAX_SIDE / longest
+        page = page.resize((max(1, int(width * scale)), max(1, int(height * scale))), Image.LANCZOS)
+    page.save(target, "PNG", optimize=False)
     return target
 
 

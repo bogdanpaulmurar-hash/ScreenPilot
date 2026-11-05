@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QMarginsF, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPageLayout, QPageSize, QPainter, QPaintEvent, QPdfWriter, QPixmap, QTextDocument
+from PySide6.QtCore import QEvent, QMarginsF, QObject, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QKeySequence, QPageLayout, QPageSize, QPainter, QPaintEvent, QPdfWriter, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from screenpilot.docs import ProcedureSession, default_name, export_docx, export_html, export_markdown
+from screenpilot.docs import ProcedureSession, default_name, export_docx, export_html, export_image, export_markdown
 from screenpilot.i18n import Translator
 from screenpilot.ui.qt_helpers import Retranslator, app_icon
 from screenpilot.ui.theme import ui_font
@@ -156,9 +156,19 @@ class ProcedureWindow(QWidget):
     add_capture = Signal()
     edit_image = Signal(int)
 
-    def __init__(self, session: ProcedureSession, translator: Translator, *, save_dir: Path, reveal: Callable[[Path], None], lang: str = "en") -> None:
+    def __init__(
+        self,
+        session: ProcedureSession,
+        translator: Translator,
+        *,
+        save_dir: Path,
+        reveal: Callable[[Path], None],
+        lang: str = "en",
+        copy_image: Callable[[Path], None] | None = None,
+    ) -> None:
         super().__init__(None)
         self.session = session
+        self._copy_image = copy_image
         self.t = translator.t
         self.translator = translator
         self.save_dir = save_dir
@@ -197,6 +207,9 @@ class ProcedureWindow(QWidget):
         self.list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self.list.model().rowsMoved.connect(self._on_rows_moved)
         self.list.currentRowChanged.connect(self._show_step)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._list_menu)
+        self.list.installEventFilter(self)  # Ctrl+C copies the step image (the list would copy its text)
 
         detail = QWidget()
         dl = QVBoxLayout(detail)
@@ -218,6 +231,7 @@ class ProcedureWindow(QWidget):
             ("up", "procedure.up", lambda: self._move(-1)),
             ("down", "procedure.down", lambda: self._move(1)),
             ("edit", "procedure.edit_image", lambda: self.edit_image.emit(self.list.currentRow())),
+            ("copy", "procedure.copy_image", self.copy_step),
             ("trash", "procedure.delete", self._delete),
         ):
             b = IconButton(icon_name, size=18)
@@ -250,7 +264,7 @@ class ProcedureWindow(QWidget):
         rt.bind(self.export_button.setText, "procedure.export")
         menu = QMenu(self)
         self.export_actions = {}
-        for fmt in ("word", "pdf", "html", "md"):
+        for fmt in ("word", "pdf", "html", "md", "png"):
             action = menu.addAction("")
             action.triggered.connect(lambda _=False, f=fmt: self.export(f))
             self.export_actions[fmt] = action
@@ -337,10 +351,40 @@ class ProcedureWindow(QWidget):
     def step_added(self) -> None:
         self.reload()
 
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self.list and event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress) and event.matches(QKeySequence.StandardKey.Copy):
+            event.accept()
+            if event.type() == QEvent.Type.KeyPress:
+                self.copy_step()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _list_menu(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is None:
+            return
+        self.list.setCurrentItem(item)
+        menu = QMenu(self)
+        menu.addAction(self.t("procedure.copy_image"), self.copy_step)
+        menu.addAction(self.t("procedure.edit_image"), lambda: self.edit_image.emit(self.list.currentRow()))
+        menu.exec(self.list.viewport().mapToGlobal(pos))
+
+    def copy_step(self, row: int | None = None) -> bool:
+        """Put the image of one step (the selected one by default) on the clipboard."""
+        row = self.list.currentRow() if row is None else row
+        if not 0 <= row < len(self.session.steps):
+            return False
+        path = self.session.image_path(self.session.steps[row])
+        if self._copy_image is not None:
+            self._copy_image(path)
+        else:
+            QGuiApplication.clipboard().setImage(QPixmap(str(path)).toImage())
+        return True
+
     # -- export ---------------------------------------------------------------
     def export(self, fmt: str, target: Path | None = None) -> Path | None:
         self._save_meta()
-        ext = {"word": "docx", "pdf": "pdf", "html": "html", "md": "md"}[fmt]
+        ext = {"word": "docx", "pdf": "pdf", "html": "html", "md": "md", "png": "png"}[fmt]
         if target is None:
             suggested = self.save_dir / f"{default_name(self.session)}.{ext}"
             path, _ = QFileDialog.getSaveFileName(self, self.t("procedure.export"), str(suggested), f"*.{ext}")
@@ -356,9 +400,11 @@ class ProcedureWindow(QWidget):
                 export_pdf(self.session, target, step_label=label_text)
             elif fmt == "html":
                 export_html(self.session, target, step_label=label_text, lang=lang[:2])
+            elif fmt == "png":
+                export_image(self.session, target, step_label=label_text)
             else:
                 export_markdown(self.session, target, step_label=label_text)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             QMessageBox.warning(self, self.t("procedure.export"), str(exc))
             return None
         log.info("Procedure exported to %s", target)

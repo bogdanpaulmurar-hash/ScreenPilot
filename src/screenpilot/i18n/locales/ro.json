@@ -438,6 +438,8 @@
   "procedure.export.pdf": "PDF",
   "procedure.export.html": "Pagină web (.html)",
   "procedure.export.md": "Markdown (.md)",
+  "procedure.export.png": "O singură poză (.png)",
+  "procedure.copy_image": "Copiază imaginea",
   "procedure.exported": "Exportat: {path}",
   "procedure.resume": "Deschide procedura neterminată",
   "hub.mode.procedure": "Procedură",

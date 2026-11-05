@@ -438,6 +438,8 @@
   "procedure.export.pdf": "PDF",
   "procedure.export.html": "Web page (.html)",
   "procedure.export.md": "Markdown (.md)",
+  "procedure.export.png": "One image (.png)",
+  "procedure.copy_image": "Copy image",
   "procedure.exported": "Exported: {path}",
   "procedure.resume": "Open unfinished procedure",
   "hub.mode.procedure": "Procedure",
