@@ -1,6 +1,6 @@
 """Documentation Engine: procedures recorded from captures and their exports."""
 
-from screenpilot.docs.export import default_name, export_docx, export_html, export_markdown
+from screenpilot.docs.export import default_name, export_docx, export_html, export_image, export_markdown
 from screenpilot.docs.model import Procedure, ProcedureSession, ProcedureStep
 
 __all__ = [
@@ -10,5 +10,6 @@ __all__ = [
     "default_name",
     "export_docx",
     "export_html",
+    "export_image",
     "export_markdown",
 ]

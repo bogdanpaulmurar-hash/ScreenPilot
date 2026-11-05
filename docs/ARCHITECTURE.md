@@ -50,7 +50,7 @@ Status: M1 (desktop shell) — October 2026.
 | `samples` | synthetic demo desktop for demos, tutorials, tests | done |
 | `editor` | annotation document model, steps, watermark + Qt canvas | done (v1) |
 | `ocr` | `OcrEngine` protocol; Windows.Media.Ocr, Tesseract; sensitive data | done (v1) |
-| `docs` | procedure sessions; DOCX/HTML/MD export (PDF via Qt) | done (v1) |
+| `docs` | procedure sessions; DOCX/HTML/MD/one-PNG export (PDF via Qt) | done (v1) |
 | `recording` | frame source → effects (ink, cursor, clicks, zoom) → sink (ffmpeg MP4 / Pillow GIF), `RecordingService`; `ink` = live annotations (`InkLayer`, `InkRenderer`) | done (v1 + live annotations) |
 | `instance` | single running instance: authenticated local channel (named pipe / Unix socket, stdlib `multiprocessing.connection`), commands forwarded by `gui`, `action <id>`, DevPilot | done |
 | `videoedit` | video projects (trim + timed annotations, JSON), frame readers (FFmpeg seek / Pillow GIF), export (one FFmpeg pass / Pillow GIF), `VideoEditService` = `app.video` | done (v1) |

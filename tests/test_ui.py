@@ -579,10 +579,24 @@ class ProcedureTests(UiTestCase):
         shot(window, "31_procedure_window")
         out = Path(self._tmp.name) / "export"
         out.mkdir()
-        for fmt, ext in (("word", "docx"), ("pdf", "pdf"), ("html", "html"), ("md", "md")):
+        for fmt, ext in (("word", "docx"), ("pdf", "pdf"), ("html", "html"), ("md", "md"), ("png", "png")):
             target = window.export(fmt, out / f"proc.{ext}")
             self.assertTrue(target.exists() and target.stat().st_size > (100 if fmt == "md" else 1000), fmt)
         self.assertEqual((out / "proc.pdf").read_bytes()[:4], b"%PDF")
+        self.assertEqual((out / "proc.png").read_bytes()[:4], b"\x89PNG")
+        # copy one step image to the clipboard (button, then Ctrl+C on the list)
+        self.app.clipboard.image = None
+        window.list.setCurrentRow(1)
+        window.buttons["copy"].click()
+        step = window.session.steps[1]
+        self.assertIsNotNone(self.app.clipboard.image)
+        self.assertEqual((self.app.clipboard.image.width, self.app.clipboard.image.height), (step.width, step.height))
+        self.app.clipboard.image = None
+        window.list.setCurrentRow(0)
+        window.list.setFocus()
+        QTest.keyClick(window.list, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(wait_until(lambda: self.app.clipboard.image is not None))
+        self.assertEqual(self.app.clipboard.image.width, window.session.steps[0].width)
         window.close()
 
     def test_cancel_empty_procedure(self):

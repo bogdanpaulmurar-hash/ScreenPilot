@@ -2,6 +2,11 @@
 
 Per-release details: `docs/releases/<version>.md`.
 
+## 0.9.8 — 2026-11-05
+- Procedure: new export "One image (.png)" puts every step image into one picture, top to bottom, each with a "Step N: title" line above it.
+- Procedure: copy the image of any step to the clipboard (copy button under the preview, right-click on the step in the list, or Ctrl+C in the list).
+- Tests (Linux, offscreen Qt): 391 passed, 9 skipped (Windows-only). New: `SingleImageExportTests` (4); the procedure UI test also exports PNG and copies with the button and Ctrl+C.
+
 ## 0.9.7 — 2026-10-30
 - Editor: "Copy & close" also saves the edited image to the captures folder (same name pattern, appears in history); new setting `editor.copy_close_saves` (on by default; Settings → "Save on Copy & close").
 - Tests (Linux, offscreen Qt): 387 passed, 9 skipped (Windows-only). New: copy & close saves; setting off saves nothing.
