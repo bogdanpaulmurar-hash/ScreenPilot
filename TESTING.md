@@ -2,6 +2,18 @@
 
 Manual test steps per version (what you do → what should happen). Older versions: the checklist at the end of `docs/releases/<version>.md`.
 
+## 0.9.9 — Editor: change step numbers
+Update first: close ScreenPilot from the tray → `git pull` → start it again (no reinstall; dependencies unchanged). Covers 0.9.8 too.
+
+1. Make a capture → editor opens → Steps tool (N) → click 3 places → badges 1, 2, 3.
+2. Double-click badge 2 → a box asks for the number, it shows 2 → type 7 → OK → badges 1, 7, 8.
+3. Right-click badge 1 → **Change number…** → 5 → badges 5, 7, 8.
+4. Right-click badge 2 → **Automatic number** → badges 5, 6, 7.
+5. Right-click any badge → **Renumber all: 1, 2, 3…** → badges 1, 2, 3. Ctrl+Z → back to 5, 6, 7.
+6. Select a badge → Ctrl+D → the copy shows the next free number, not a repeat.
+7. Type 123 on a badge → the number fits inside the circle. Copy / Save → the saved image shows the same numbers.
+8. In a procedure: Edit image on a step → same behaviour.
+
 ## 0.9.8 — Procedure: one image + copy per step
 Update first: close ScreenPilot from the tray → `git pull` → start it again (no reinstall; dependencies unchanged).
 
