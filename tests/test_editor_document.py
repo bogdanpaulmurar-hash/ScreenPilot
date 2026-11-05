@@ -48,6 +48,35 @@ class EditorDocumentTests(unittest.TestCase):
         doc.step_start = 5
         self.assertEqual(doc.step_number(c - 1), 6)
 
+    def test_step_numbers_can_be_set_by_hand(self):
+        doc = EditorDocument(300, 200)
+        steps = [doc.add(Shape("step", Point(20 + 40 * i, 20), Point(20 + 40 * i, 20))) for i in range(4)]
+        numbers = lambda: [doc.step_number(i) for i in steps]  # noqa: E731
+        doc.set_step_number(steps[0], 5)  # start from another number
+        self.assertEqual(numbers(), [5, 6, 7, 8])
+        doc.set_step_number(steps[2], 10)  # a wrong step: the following ones continue from it
+        self.assertEqual(numbers(), [5, 6, 10, 11])
+        doc.undo()
+        self.assertEqual(numbers(), [5, 6, 7, 8])
+        doc.set_step_number(steps[0], None)
+        self.assertEqual(numbers(), [1, 2, 3, 4])
+        doc.set_step_number(steps[1], 4000)
+        self.assertEqual(doc.step_number(steps[1]), 999)
+        self.assertTrue(doc.reset_step_numbers())
+        self.assertEqual(numbers(), [1, 2, 3, 4])
+        self.assertFalse(doc.reset_step_numbers())
+        doc.add(Shape("rect", Point(0, 0), Point(5, 5)))
+        with self.assertRaises(ValueError):
+            doc.set_step_number(len(doc.shapes) - 1, 3)
+
+    def test_three_digit_step_renders(self):
+        from screenpilot.editor.document import render
+
+        doc = EditorDocument(200, 120)
+        i = doc.add(Shape("step", Point(60, 60), Point(60, 60)))
+        doc.set_step_number(i, 123)
+        render(CapturedImage(200, 120, bytes([255]) * 200 * 120 * 4), doc)
+
     def test_hit_testing(self):
         doc = EditorDocument(300, 200)
         doc.add(Shape("rect", Point(10, 10), Point(110, 110), width=4))

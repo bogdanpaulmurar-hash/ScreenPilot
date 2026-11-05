@@ -209,13 +209,37 @@ class EditorDocument:
         return area
 
     def step_number(self, index: int) -> int:
-        n = 0
+        """Number shown on the step badge at ``index``.
+
+        Steps count up in drawing order from ``step_start``. A step with its own
+        number (``Shape.text``) shows it, and the steps after it continue from it."""
+        n = self.step_start
         for i, shape in enumerate(self.shapes):
             if shape.kind == "step":
+                fixed = fixed_step_number(shape)
+                if fixed is not None:
+                    n = fixed
                 if i == index:
-                    return self.step_start + n
+                    return n
                 n += 1
         raise ValueError("Not a step")
+
+    def set_step_number(self, index: int, number: int | None) -> None:
+        """Give the step at ``index`` its own number (``None``: back to automatic)."""
+        shape = self.shapes[index]
+        if shape.kind != "step":
+            raise ValueError("Not a step")
+        text = "" if number is None else str(max(0, min(MAX_STEP_NUMBER, int(number))))
+        if text != shape.text:
+            self.replace(index, replace(shape, text=text))
+
+    def reset_step_numbers(self) -> bool:
+        """All steps numbered automatically again (1, 2, 3… from ``step_start``)."""
+        if not any(s.kind == "step" and s.text for s in self.shapes):
+            return False
+        self._snapshot()
+        self.shapes = [replace(s, text="") if s.kind == "step" else s for s in self.shapes]
+        return True
 
     def hit(self, p: Point, slack: int = 6) -> int | None:
         """Topmost shape under ``p``."""
@@ -310,6 +334,17 @@ def emoji_font(size: int, text: str = "") -> ImageFont.ImageFont:
         if _truetype(name, size) is not None:
             return _truetype(name, size)
     return font(size)
+
+
+MAX_STEP_NUMBER = 999
+
+
+def fixed_step_number(s: Shape) -> int | None:
+    """The number a step badge was given by hand, or ``None`` when it counts automatically."""
+    try:
+        return int(s.text) if s.text else None
+    except ValueError:
+        return None
 
 
 def step_diameter(s: Shape) -> int:
@@ -459,7 +494,7 @@ def _draw_vector(draw: ImageDraw.ImageDraw, s: Shape, number: int | None, sp: _S
         draw.ellipse((cx - r + off, cy - r + off * 1.4, cx + r + off, cy + r + off * 1.4), fill=(0, 0, 0, 60))
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=solid, outline=(255, 255, 255, 255), width=max(2, d // 12) * k)
         label = str(number if number is not None else "?")
-        size = round(d * (0.55 if len(label) < 2 else 0.45)) * k
+        size = round(d * {1: 0.55, 2: 0.45}.get(len(label), 0.34)) * k
         draw.text((cx, cy), label, fill=_contrast(rgb) + (255,), font=font(size, True), anchor="mm")
 
 

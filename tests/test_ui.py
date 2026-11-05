@@ -385,6 +385,49 @@ class EditorTests(UiTestCase):
         QTest.mouseMove(canvas, pb)
         QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, modifier, pb)
 
+    def test_step_numbers_can_be_changed(self):
+        from unittest import mock
+
+        from PySide6.QtWidgets import QInputDialog
+
+        editor = self._open()
+        canvas = editor.canvas
+        editor.snap_chip.setChecked(False)
+        editor.set_tool("step")
+        t, s = canvas.target(), canvas.scale
+        at = lambda x, y: QPoint(round(t.left() + x * s), round(t.top() + y * s))  # noqa: E731
+        for x in (60, 160, 260):
+            QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(x, 150))
+        steps = [i for i, sh in enumerate(editor.doc.shapes) if sh.kind == "step"]
+        numbers = lambda: [editor.doc.step_number(i) for i in steps]  # noqa: E731
+        self.assertEqual(numbers(), [1, 2, 3])
+        # double-click the second badge and type 7: the third continues with 8
+        with mock.patch.object(QInputDialog, "getInt", return_value=(7, True)) as ask:
+            QTest.mouseDClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at(160, 150))
+        ask.assert_called_once()
+        self.assertEqual(ask.call_args.args[3], 2)  # the dialog starts at the current number
+        self.assertEqual(numbers(), [1, 7, 8])
+        # start from another number: the first badge
+        canvas.set_step_number(steps[0], 4)
+        self.assertEqual(numbers(), [4, 7, 8])
+        editor.undo()
+        self.assertEqual(numbers(), [1, 7, 8])
+        # a duplicate counts on instead of repeating 7
+        canvas.select(steps[1])
+        canvas.duplicate_selected()
+        self.assertEqual(editor.doc.step_number(len(editor.doc.shapes) - 1), 9)
+        # right-click menu of a step with its own number offers all three actions
+        canvas.select(steps[1])
+        menu = editor.build_context_menu()
+        seen = [x.text() for x in menu.actions()]
+        menu.deleteLater()
+        for key in ("editor.step.number", "editor.step.auto", "editor.step.renumber"):
+            self.assertIn(editor.t(key), seen)
+        canvas.reset_step_numbers()
+        self.assertEqual(numbers(), [1, 2, 3])
+        shot(editor, "27_editor_step_numbers")
+        editor.close()
+
     def test_draw_tools_undo_select_move_and_done(self):
         editor = self._open()
         canvas = editor.canvas

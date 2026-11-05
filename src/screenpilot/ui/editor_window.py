@@ -70,12 +70,14 @@ from screenpilot.capture.image import CapturedImage, CaptureResult
 from screenpilot.editor.document import (
     BOX_KINDS,
     COLORS,
+    MAX_STEP_NUMBER,
     PALETTE,
     SCALED_KINDS,
     SYMBOLS,
     EditorDocument,
     Shape,
     box_handles,
+    fixed_step_number,
     render,
     resize_box,
     scaled,
@@ -387,8 +389,29 @@ class EditorCanvas(QWidget):
         if shape is None:
             return
         offset = max(12, round(16 / max(self.scale, 0.01) * 0.5))
+        if shape.kind == "step":
+            shape = replace(shape, text="")  # a copy counts on; it does not repeat a fixed number
         self.select(self.doc.add(shape.moved(offset, offset)))
         self.refresh()
+
+    def set_step_number(self, index: int, number: int | None) -> None:
+        self.doc.set_step_number(index, number)
+        self.refresh()
+
+    def edit_step_number(self, index: int | None = None) -> None:
+        """Ask for the number of a step badge; the steps after it continue from it."""
+        index = self.selected if index is None else index
+        if index is None or self.doc.shapes[index].kind != "step":
+            return
+        number, ok = QInputDialog.getInt(
+            self, self.t("editor.step.number"), self.t("editor.step.number.prompt"), self.doc.step_number(index), 0, MAX_STEP_NUMBER
+        )
+        if ok:
+            self.set_step_number(index, number)
+
+    def reset_step_numbers(self) -> None:
+        if self.doc.reset_step_numbers():
+            self.refresh()
 
     def raise_selected(self, front: bool = True) -> None:
         if self.selected is None:
@@ -637,6 +660,10 @@ class EditorCanvas(QWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         index = self.doc.hit(self.to_image(event.position()))
+        if index is not None and self.doc.shapes[index].kind == "step":
+            self.select(index)
+            self.edit_step_number(index)
+            return
         if index is not None and self.doc.shapes[index].kind == "text":
             shape = self.doc.shapes[index]
             text, ok = QInputDialog.getMultiLineText(self, self.t("editor.tool.text"), self.t("editor.text.prompt"), shape.text)
@@ -1219,11 +1246,25 @@ class EditorWindow(QWidget):
         self._update_zoom()  # the fitted size depends on the window
 
     def _context_menu(self, global_pos: QPoint) -> None:
+        menu = self.build_context_menu()
+        if menu is not None:
+            menu.exec(global_pos)
+
+    def build_context_menu(self) -> QMenu | None:
+        """Right-click menu for the selected shape."""
         shape = self.canvas.selected_shape
         if shape is None:
-            return
+            return None
         menu = QMenu(self)
         t = theme()
+        if shape.kind == "step":
+            index = self.canvas.selected
+            menu.addAction(icons.icon("edit", t.text, 16), self.t("editor.step.number"), lambda: self.canvas.edit_step_number(index))
+            if fixed_step_number(shape) is not None:
+                menu.addAction(self.t("editor.step.auto"), lambda: self.canvas.set_step_number(index, None))
+            if any(s.kind == "step" and fixed_step_number(s) is not None for s in self.doc.shapes):
+                menu.addAction(self.t("editor.step.renumber"), self.canvas.reset_step_numbers)
+            menu.addSeparator()
         if shape.kind in ("image", "text", "emoji"):
             menu.addAction(icons.icon("down", t.text, 16), self.t("editor.place.below"), lambda: self.canvas.place_selected("below"))
             menu.addAction(icons.icon("arrow", t.text, 16), self.t("editor.place.right"), lambda: self.canvas.place_selected("right"))
@@ -1235,7 +1276,7 @@ class EditorWindow(QWidget):
             ("trash", "editor.delete", self.canvas.delete_selected),
         ):
             menu.addAction(icons.icon(icon_name, t.text, 16), self.t(key), slot)
-        menu.exec(global_pos)
+        return menu
 
     # -- pictures -------------------------------------------------------------
     def _drop_point(self) -> Point:

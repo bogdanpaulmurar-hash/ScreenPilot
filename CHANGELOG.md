@@ -2,6 +2,10 @@
 
 Per-release details: `docs/releases/<version>.md`.
 
+## 0.9.9 — 2026-11-05
+- Editor: step numbers can be changed. Double-click a step badge (or right-click → "Change number…") and type a number; the next steps continue from it, so the first step sets where the numbering starts. Right-click also offers "Automatic number" and "Renumber all: 1, 2, 3…". A duplicated step counts on instead of repeating a fixed number. Up to 999.
+- Tests (Linux, offscreen Qt): 394 passed, 9 skipped (Windows-only). New: hand-set numbers in `EditorDocument` (+ 3-digit render) and `test_step_numbers_can_be_changed` (double-click, start number, undo, duplicate, menu, renumber).
+
 ## 0.9.8 — 2026-11-05
 - Procedure: new export "One image (.png)" puts every step image into one picture, top to bottom, each with a "Step N: title" line above it.
 - Procedure: copy the image of any step to the clipboard (copy button under the preview, right-click on the step in the list, or Ctrl+C in the list).
